@@ -1,0 +1,15 @@
+{
+  "name": "labo-dentaire",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Application web de gestion d'un laboratoire dentaire (React + Node.js)",
+  "scripts": {
+    "install:all": "npm run setup",
+    "seed": "npm --prefix server run seed",
+    "dev:server": "npm --prefix server run dev",
+    "dev:client": "npm --prefix client run dev",
+    "build": "npm --prefix client run build",
+    "start": "npm --prefix server start",
+    "setup": "npm --prefix server install && npm --prefix client install"
+  }
+}
