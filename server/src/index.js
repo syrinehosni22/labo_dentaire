@@ -131,7 +131,7 @@ async function start() {
   await ensureAdmin();
   await require('./routes/invoices').releaseStaleLocks();
   const app = createApp();
-  const port = Number(process.env.PORT) || 4000;
+  const port = Number(process.env.PORT) || 5001;
   // Express 5 passes listen errors to this callback: only announce success when there is none
   const server = app.listen(port, (err) => {
     if (err) return;   // reported by the 'error' handler below
