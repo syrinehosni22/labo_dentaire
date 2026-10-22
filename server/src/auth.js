@@ -109,4 +109,4 @@ function requirePerm(...perms) {
   };
 }
 
-module.exports = { passwordProblem, PERMISSIONS, ROLE_DEFAULTS, ROLE_LABELS, effectivePermissions, initSecret, sign, authenticate, requirePerm, publicUser, defaultPrefs, findUser, obj };
+module.exports = { passwordProblem, PERMISSIONS, ROLE_DEFAULTS, ROLE_LABELS, effectivePermissions, initSecret, secret, sign, authenticate, requirePerm, publicUser, defaultPrefs, findUser, obj };

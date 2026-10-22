@@ -471,3 +471,7 @@ a.mono-num:hover { color: var(--accent-ink); text-decoration: underline; }
 .reset-tools .row-actions { align-items: center; }
 .reset-link { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; margin-top: 12px; padding: 12px; background: var(--surface-2); border: 1px solid var(--line); border-radius: var(--r); }
 .reset-link input { flex: 1 1 320px; font-size: .8rem; }
+
+/* Google Agenda settings */
+.steps-list { margin: 8px 0 12px; padding-left: 20px; line-height: 1.6; }
+.code-line { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: .85rem; background: var(--bg); border: 1px solid var(--line); border-radius: var(--r-sm); padding: 6px 10px; word-break: break-all; }

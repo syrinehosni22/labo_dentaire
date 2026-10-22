@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
 import { Empty, ErrorBox, Field, PageHeader, Pagination, useLoad, useUi } from '../components/ui';
@@ -112,6 +112,7 @@ export function Profile() {
           })}
           <button className="btn btn-primary" onClick={() => save({ phone, notif_prefs: prefs }, 'Préférences enregistrées.')}>Enregistrer mes préférences</button>
         </section>
+        <GoogleCalendarCard />
         <section className="card">
           <h2>Mot de passe</h2>
           {user.password_changed_at && <p className="muted small">Dernière modification le {fmtDate(user.password_changed_at.replace(' ', 'T').slice(0, 16))}.</p>}
@@ -119,5 +120,89 @@ export function Profile() {
         </section>
       </div>
     </div>
+  );
+}
+
+/* ---------- Google Agenda ---------- */
+const GCAL_STATUS = { ok: 'Synchronisé', error: 'Erreur de synchronisation', revoked: 'Accès à reconnecter' };
+
+function GoogleCalendarCard() {
+  const { user } = useAuth();
+  const { toast, confirm } = useUi();
+  const [params, setParams] = useSearchParams();
+  const [st, setSt] = useState(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState(null);
+  const load = () => api.get('/google/status').then(setSt).catch((e) => setError(e.message));
+  useEffect(() => { load(); }, []);
+
+  // return from Google (/profil?google=ok|erreur&message=…)
+  useEffect(() => {
+    const g = params.get('google');
+    if (!g) return;
+    if (g === 'ok') toast('Google Agenda connecté. Vos essayages et livraisons y apparaissent dans quelques instants.');
+    else setError(params.get('message') || 'La connexion à Google Agenda a échoué.');
+    params.delete('google'); params.delete('message');
+    setParams(params, { replace: true });
+    if (g === 'ok') setTimeout(load, 4000);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const run = async (fn) => { setBusy(true); setError(null); try { await fn(); } catch (e) { setError(e.message); } finally { setBusy(false); } };
+  const connect = () => run(async () => { const { url } = await api.post('/google/connect'); window.location.assign(url); });
+  const sync = () => run(async () => {
+    const r = await api.post('/google/sync');
+    setSt((x) => ({ ...x, account: r.account }));
+    if (r.account?.status === 'ok') toast('Google Agenda synchronisé.'); else setError(r.account?.last_error || 'Synchronisation impossible.');
+  });
+  const setKind = (k, on) => run(async () => {
+    const kinds = on ? [...st.account.kinds, k] : st.account.kinds.filter((x) => x !== k);
+    const r = await api.put('/google/prefs', { kinds });
+    setSt((x) => ({ ...x, account: { ...x.account, kinds: r.kinds } }));
+    toast('Préférence enregistrée. Votre agenda est mis à jour.');
+  });
+  const disconnect = async () => {
+    const choice = await confirm({
+      title: 'Déconnecter Google Agenda',
+      message: "L'application n'aura plus accès à votre compte Google. Voulez-vous aussi supprimer l'agenda « demandes » qu'elle avait créé, avec tous ses événements ?",
+      actions: [{ label: "Garder l'agenda", value: 'keep', primary: true }, { label: "Supprimer l'agenda", value: 'delete', danger: true }],
+    });
+    if (!choice) return;
+    run(async () => {
+      const r = await api.post('/google/disconnect', { delete_calendar: choice === 'delete' });
+      toast(r.calendar_deleted ? 'Compte Google déconnecté et agenda supprimé.' : 'Compte Google déconnecté. L\'agenda reste dans Google, sans mise à jour.');
+      load();
+    });
+  };
+
+  const a = st?.account;
+  return (
+    <section className="card">
+      <h2>Google Agenda</h2>
+      <ErrorBox error={error} />
+      {!st ? (!error && <p className="muted small">Chargement…</p>) : !st.configured ? (
+        <p className="muted small">La connexion à Google Agenda n'est pas encore configurée.{user.permissions.includes('settings_manage') ? ' Renseignez les identifiants Google dans Paramètres → Google Agenda.' : " Demandez à l'administrateur de l'activer."}</p>
+      ) : !a ? (<>
+        <p className="muted small">Retrouvez les essayages et les livraisons dans votre Google Agenda, sur votre téléphone et votre ordinateur. L'application crée un agenda dédié, tenu à jour automatiquement, et n'a accès à aucun de vos autres agendas.</p>
+        <button className="btn btn-primary" onClick={connect} disabled={busy}>Connecter mon Google Agenda</button>
+      </>) : (<>
+        <p>Connecté à <strong>{a.google_email || 'votre compte Google'}</strong></p>
+        <p className={`small ${a.status === 'ok' ? 'muted' : 'warn'}`}>
+          {GCAL_STATUS[a.status] || a.status}
+          {a.last_sync_at && ` · dernière synchronisation le ${fmtDate(a.last_sync_at.replace(' ', 'T').slice(0, 16))}`}
+          {a.status === 'ok' && ` · ${a.events} événement${a.events > 1 ? 's' : ''}`}
+        </p>
+        {a.status !== 'ok' && a.last_error && <p className="warn small">{a.last_error}</p>}
+        <h3 className="sub-h">À afficher dans l'agenda</h3>
+        {Object.entries(st.kinds).map(([k, l]) => (
+          <label key={k} className="check"><input type="checkbox" disabled={busy} checked={a.kinds.includes(k)} onChange={(e) => setKind(k, e.target.checked)} /> {l}</label>
+        ))}
+        <div className="row-actions" style={{ marginTop: 12 }}>
+          {a.status === 'revoked'
+            ? <button className="btn btn-primary" onClick={connect} disabled={busy}>Reconnecter Google</button>
+            : <button className="btn" onClick={sync} disabled={busy}>{busy ? 'Synchronisation…' : 'Synchroniser maintenant'}</button>}
+          <button className="btn" onClick={disconnect} disabled={busy}>Déconnecter</button>
+        </div>
+      </>)}
+    </section>
   );
 }

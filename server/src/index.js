@@ -13,6 +13,7 @@ const cors = require('cors');
 const { connect, col, insert, safeUri, MONGODB_URI, DB_NAME } = require('./db');
 const { HttpError } = require('./util');
 const notifier = require('./services/notifier');
+const gcal = require('./services/gcal');
 const { defaultPrefs, initSecret } = require('./auth');
 const { keyOf } = require('./util');
 
@@ -67,14 +68,20 @@ function createApp() {
     try { await col('users').estimatedDocumentCount(); } catch { database = 'indisponible'; }
     res.status(database === 'ok' ? 200 : 503).json({ ok: database === 'ok', app: 'labo-dentaire', database, time: new Date().toISOString() });
   });
+  const google = require('./routes/google');
+  api.use(google.publicRouter);          // OAuth return from Google: before the auth middleware
   api.use(require('./routes/auth'));
   api.use(require('./routes/doctors').router);
   api.use(require('./routes/designations'));
   api.use(require('./routes/fiches').router);
   const requests = require('./routes/requests');
-  requests.setOnChange(() => setTimeout(() => notifier.scan(), 50));   // reminders recalculated after any change
+  requests.setOnChange(() => {
+    setTimeout(() => notifier.scan(), 50);   // reminders recalculated after any change
+    gcal.requestChanged();                   // Google Agenda updated a few seconds later
+  });
   api.use(requests.router);
   api.use(require('./routes/notifications'));
+  api.use(google.router);
   api.use(require('./routes/invoices').router);
   api.use(require('./routes/admin').router);
   api.use((req, res) => res.status(404).json({ error: 'Route inconnue.' }));
@@ -130,6 +137,7 @@ async function start() {
     if (err) return;   // reported by the 'error' handler below
     console.log(`Laboratoire dentaire — API sur http://localhost:${port}`);
     notifier.start();
+    gcal.start();
     require('./routes/admin').scheduleBackups();
   });
   server.on('error', (e) => {

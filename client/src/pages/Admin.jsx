@@ -138,7 +138,7 @@ export function Users() {
 }
 
 /* ------------------------- Settings ------------------------- */
-const TABS = [['lab', 'Laboratoire'], ['notifs', 'Notifications'], ['deliveries', 'Journal des envois'], ['backups', 'Sauvegardes'], ['audit', "Journal d'activité"]];
+const TABS = [['lab', 'Laboratoire'], ['notifs', 'Notifications'], ['deliveries', 'Journal des envois'], ['google', 'Google Agenda'], ['backups', 'Sauvegardes'], ['audit', "Journal d'activité"]];
 
 export function Settings() {
   const [tab, setTab] = useState('lab');
@@ -151,6 +151,7 @@ export function Settings() {
       {tab === 'lab' && <LabSettings />}
       {tab === 'notifs' && <NotifSettings />}
       {tab === 'deliveries' && <Deliveries />}
+      {tab === 'google' && <GoogleSettings />}
       {tab === 'backups' && <Backups />}
       {tab === 'audit' && <Audit />}
     </div>
@@ -288,6 +289,61 @@ function NotifSettings() {
       </section>
       <div className="form-actions"><span className="grow" /><button className="btn btn-primary" onClick={save}>Enregistrer</button></div>
     </div>
+  );
+}
+
+const GCAL_STATUS = { ok: 'Synchronisé', error: 'Erreur', revoked: 'À reconnecter' };
+function GoogleSettings() {
+  const { toast } = useUi();
+  const [s, setS] = useState(null);
+  const [error, setError] = useState(null);
+  const load = () => api.get('/google-settings').then(setS).catch((e) => setError(e.message));
+  useEffect(() => { load(); }, []);
+  if (!s) return error ? <ErrorBox error={error} /> : <Loading />;
+  const save = async (e) => {
+    e.preventDefault(); setError(null);
+    try { await api.put('/google-settings', { client_id: s.client_id, client_secret: s.client_secret, full_names: s.full_names }); toast('Paramètres Google Agenda enregistrés.'); load(); } catch (err) { setError(err.message); }
+  };
+  const copy = async () => { try { await navigator.clipboard.writeText(s.redirect_uri); toast('Adresse copiée.'); } catch { toast("Copie impossible : sélectionnez l'adresse à la main.", 'error'); } };
+  const insecure = !/^https:\/\//.test(s.redirect_uri) && !/^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?\//.test(s.redirect_uri);
+  return (
+    <form onSubmit={save}>
+      <ErrorBox error={error} />
+      <section className="card">
+        <h2>Application Google</h2>
+        <p className="muted small">Permet à chaque utilisateur de retrouver les essayages et les livraisons dans son Google Agenda (Mon compte → Google Agenda). Créez une fois pour toutes une application dans Google Cloud, en suivant le README (section « Google Agenda ») :</p>
+        <ol className="small steps-list">
+          <li>Activez <strong>Google Calendar API</strong> dans un projet <a href="https://console.cloud.google.com/apis/library/calendar-json.googleapis.com" target="_blank" rel="noreferrer">Google Cloud</a>.</li>
+          <li>Configurez l'écran de consentement (<em>Google Auth Platform</em>) et <strong>publiez</strong> l'application (sinon l'accès expire au bout de 7 jours).</li>
+          <li>Créez un client OAuth de type <strong>Application Web</strong> avec cet URI de redirection autorisé :</li>
+        </ol>
+        <div className="row-actions" style={{ alignItems: 'center' }}>
+          <code className="code-line">{s.redirect_uri}</code>
+          <button type="button" className="btn btn-small" onClick={copy}>Copier</button>
+        </div>
+        {insecure && <p className="warn small">Google n'accepte cette adresse qu'en HTTPS (seul http://localhost est toléré). Renseignez l'adresse publique HTTPS de l'application (APP_URL, ou Paramètres → Laboratoire).</p>}
+        {s.from_env && <p className="muted small">Identifiants actuellement lus dans server/.env (GOOGLE_CLIENT_ID). Ceux saisis ci-dessous les remplacent.</p>}
+        <div className="form-grid" style={{ marginTop: 12 }}>
+          <Field label="ID client" className="span-all"><input value={s.client_id} placeholder="…apps.googleusercontent.com" onChange={(e) => setS((x) => ({ ...x, client_id: e.target.value }))} /></Field>
+          <Field label="Code secret du client" className="span-all"><input type="password" autoComplete="off" value={s.client_secret} onChange={(e) => setS((x) => ({ ...x, client_secret: e.target.value }))} /></Field>
+        </div>
+        <label className="check"><input type="checkbox" checked={s.full_names} onChange={(e) => setS((x) => ({ ...x, full_names: e.target.checked }))} /> Afficher le nom complet du patient dans Google Agenda (sinon : initiales uniquement)</label>
+        <div className="form-actions"><span className="grow" /><button className="btn btn-primary">Enregistrer</button></div>
+      </section>
+      <section className="card list-card">
+        <h2>Comptes connectés</h2>
+        {s.accounts.length === 0 ? <p className="muted small">Aucun utilisateur n'a encore connecté son Google Agenda.</p> : (
+          <div className="table-wrap"><table className="table">
+            <thead><tr><th>Utilisateur</th><th>Compte Google</th><th>État</th><th>Dernière synchronisation</th></tr></thead>
+            <tbody>{s.accounts.map((a) => (
+              <tr key={a.user_id}><td>{a.user_name}{!a.user_active && <span className="tag tag-soft">inactif</span>}</td><td>{a.google_email || '—'}</td>
+                <td><span className={`delivery delivery-${a.status === 'ok' ? 'envoye' : 'echec'}`}>{GCAL_STATUS[a.status] || a.status}</span>{a.status !== 'ok' && a.last_error && <div className="muted small">{a.last_error}</div>}</td>
+                <td className="date-cell">{a.last_sync_at ? fmtDate(a.last_sync_at.replace(' ', 'T').slice(0, 16)) : '—'}</td></tr>
+            ))}</tbody>
+          </table></div>
+        )}
+      </section>
+    </form>
   );
 }
 

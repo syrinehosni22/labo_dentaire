@@ -84,6 +84,7 @@ async function ensureIndexes() {
     ix('push_subscriptions', { user_id: 1 }),
     ix('password_resets', { token_hash: 1 }, { unique: true }),
     ix('password_resets', { user_id: 1, used_at: 1 }),
+    ix('calendar_events', { user_id: 1, key: 1 }, { unique: true }),     // one Google event per user and deadline
   ]);
 }
 

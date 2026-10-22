@@ -310,6 +310,7 @@ router.delete('/requests/:id', requirePerm('delete_archive'), async (req, res) =
   const cur = await loadRequest(req.params.id);
   await col('requests').updateOne({ _id: cur.id }, { $set: { deleted_at: nowStamp() } });
   audit(req, 'suppression demande', 'request', cur.id, { numero: cur.numero, patient: cur.patient_name });
+  onChange();
   res.json({ ok: true });
 });
 
