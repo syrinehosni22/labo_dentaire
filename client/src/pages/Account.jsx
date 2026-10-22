@@ -127,7 +127,8 @@ export function Profile() {
 const GCAL_STATUS = { ok: 'Synchronisé', error: 'Erreur de synchronisation', revoked: 'Accès à reconnecter' };
 
 function GoogleCalendarCard() {
-  const { user } = useAuth();
+  const { user, settings } = useAuth();
+  const labName = settings?.lab?.name || 'Laboratoire dentaire';
   const { toast, confirm } = useUi();
   const [params, setParams] = useSearchParams();
   const [st, setSt] = useState(null);
@@ -180,10 +181,19 @@ function GoogleCalendarCard() {
       <h2>Google Agenda</h2>
       <ErrorBox error={error} />
       {!st ? (!error && <p className="muted small">Chargement…</p>) : !st.configured ? (
-        <p className="muted small">La connexion à Google Agenda n'est pas encore configurée.{user.permissions.includes('settings_manage') ? ' Renseignez les identifiants Google dans Paramètres → Google Agenda.' : " Demandez à l'administrateur de l'activer."}</p>
+        <p className="muted small">La connexion à Google Agenda n'est pas encore disponible : l'application du laboratoire doit d'abord être déclarée auprès de Google.{user.permissions.includes('settings_manage') ? ' Suivez les étapes de Paramètres → Google Agenda, puis revenez ici pour connecter votre compte.' : " Demandez à l'administrateur de l'activer ; vous pourrez ensuite connecter votre compte ici."}</p>
       ) : !a ? (<>
         <p className="muted small">Retrouvez les essayages et les livraisons dans votre Google Agenda, sur votre téléphone et votre ordinateur. L'application crée un agenda dédié, tenu à jour automatiquement, et n'a accès à aucun de vos autres agendas.</p>
+        <h3 className="sub-h">Comment connecter votre agenda</h3>
+        <ol className="small steps-list">
+          <li>Cliquez sur <strong>Connecter mon Google Agenda</strong> : la page de connexion de Google s'ouvre.</li>
+          <li>Choisissez le compte Google sur lequel vous voulez voir les rendez-vous (celui de votre téléphone, en général).</li>
+          <li>Si Google affiche « <em>Google n'a pas validé cette application</em> », cliquez sur <strong>Paramètres avancés</strong>, puis sur <strong>Accéder à …</strong>. C'est normal pour une application interne au laboratoire.</li>
+          <li>Sur l'écran des autorisations, <strong>cochez la case</strong> qui permet à l'application de gérer ses agendas, puis cliquez sur <strong>Continuer</strong>.</li>
+          <li>Vous revenez ici automatiquement. Après quelques secondes, un agenda « {labName} — demandes » apparaît dans Google Agenda.</li>
+        </ol>
         <button className="btn btn-primary" onClick={connect} disabled={busy}>Connecter mon Google Agenda</button>
+        <p className="muted small" style={{ marginTop: 10 }}>Vous pourrez vous déconnecter à tout moment depuis cette page.</p>
       </>) : (<>
         <p>Connecté à <strong>{a.google_email || 'votre compte Google'}</strong></p>
         <p className={`small ${a.status === 'ok' ? 'muted' : 'warn'}`}>
@@ -192,6 +202,15 @@ function GoogleCalendarCard() {
           {a.status === 'ok' && ` · ${a.events} événement${a.events > 1 ? 's' : ''}`}
         </p>
         {a.status !== 'ok' && a.last_error && <p className="warn small">{a.last_error}</p>}
+        <details className="small help-details">
+          <summary>Je ne vois pas les rendez-vous dans Google Agenda</summary>
+          <ul className="steps-list">
+            <li><strong>Sur ordinateur</strong> (calendar.google.com) : dans la colonne de gauche, sous « Mes agendas », cochez « {labName} — demandes ».</li>
+            <li><strong>Sur Android</strong> : application Google Agenda → menu ☰ → cochez l'agenda « {labName} — demandes » sous votre compte.</li>
+            <li><strong>Sur iPhone</strong> : application Google Agenda → menu ☰ → cochez l'agenda. Dans l'application Calendrier d'Apple, allez sur calendar.google.com/calendar/syncselect depuis un navigateur et cochez l'agenda.</li>
+            <li>Seules les échéances à partir des 30 derniers jours sont ajoutées. Si rien n'apparaît, cliquez sur <strong>Synchroniser maintenant</strong>.</li>
+          </ul>
+        </details>
         <h3 className="sub-h">À afficher dans l'agenda</h3>
         {Object.entries(st.kinds).map(([k, l]) => (
           <label key={k} className="check"><input type="checkbox" disabled={busy} checked={a.kinds.includes(k)} onChange={(e) => setKind(k, e.target.checked)} /> {l}</label>
