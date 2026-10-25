@@ -127,7 +127,7 @@ router.get('/invoices/preview', requirePerm('invoices_manage'), async (req, res)
       invoices: invoices.map((i) => ({ ...out(i), numero: i.numero || null })),
     };
   }));
-  res.json(rows.filter((x) => req.query.doctor_id || x.billable.length || x.invoices.length || x.draft_fiches));
+  res.json(rows.filter((x) => req.query.doctor_id || !x.archived || x.billable.length || x.invoices.length || x.draft_fiches));
 });
 
 router.post('/invoices', requirePerm('invoices_manage'), async (req, res) => {
@@ -136,17 +136,13 @@ router.post('/invoices', requirePerm('invoices_manage'), async (req, res) => {
   if (!doctor) throw bad('Sélectionnez un médecin.');
   let fiches = await billableFiches(doctor._id, period);
   if (Array.isArray(fiche_ids)) fiches = fiches.filter((f) => fiche_ids.map(Number).includes(f._id));
-  if (!fiches.length) throw bad('Aucune fiche validée et non facturée pour ce médecin sur cette période.');
   const inv = await insert('invoices', {
     doctor_id: doctor._id, period, status: 'brouillon', grouping: grouping === 'designation' ? 'designation' : 'fiche',
     lab_info: await labInfo(), doctor_info: doctorSnapshot(doctor), notes: null, lines: [], total: 0,
     corrects_invoice_id: null, correction_reason: null, issue_date: today(), validated_at: null, validated_by: null, created_by: req.user.id, updated_at: null,
   });
-  const taken = await reserveFiches(inv.id, fiches);
-  if (!taken.length) {
-    await col('invoices').deleteOne({ _id: inv.id });
-    throw bad('Ces fiches viennent d\'être facturées par ailleurs.');
-  }
+  // Generation is always possible: without billable fiches, an empty draft is created and lines can be added by hand
+  const taken = fiches.length ? await reserveFiches(inv.id, fiches) : [];
   await col('invoices').updateOne({ _id: inv.id }, { $set: linesDoc(linesFromFiches(taken, inv.grouping)) });
   audit(req, 'création facture (brouillon)', 'invoice', inv.id, { medecin: doctor._id, periode: period, fiches: taken.length });
   res.status(201).json(await loadInvoice(inv.id));
@@ -163,7 +159,7 @@ router.put('/invoices/:id', requirePerm('invoices_manage'), async (req, res) => 
   const inv = await loadInvoice(req.params.id); draftOnly(inv);
   const b = req.body;
   if (b.lines) {
-    if (!Array.isArray(b.lines) || !b.lines.length) throw bad('La facture doit contenir au moins une ligne.');
+    if (!Array.isArray(b.lines)) throw bad('Lignes de facture invalides.');
     const canPrice = req.perms.has('price_override');
     b.lines.forEach((l, i) => {
       if (!String(l.designation_label || '').trim()) throw bad(`Ligne ${i + 1} : désignation obligatoire.`);

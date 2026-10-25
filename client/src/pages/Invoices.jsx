@@ -34,7 +34,7 @@ function Prepare() {
     setBusy(row.doctor_id);
     try {
       const inv = await api.post('/invoices', { doctor_id: row.doctor_id, period, grouping });
-      toast(`Brouillon de facture créé pour le Dr ${row.doctor_name}.`);
+      toast(row.billable.length ? `Brouillon de facture créé pour le Dr ${row.doctor_name}.` : `Brouillon vide créé pour le Dr ${row.doctor_name} : ajoutez les lignes à la main.`);
       navigate(`/factures/${inv.id}`);
     } catch (e) { toast(e.message, 'error'); reload(); } finally { setBusy(null); }
   };
@@ -48,7 +48,7 @@ function Prepare() {
         </label>
       </div>
       <ErrorBox error={error} />
-      {data?.length === 0 && <Empty title={`Aucune fiche à facturer pour ${periodLabel(period)}.`}>Validez des fiches de travaux datées de ce mois pour pouvoir les facturer.</Empty>}
+      {data?.length === 0 && <Empty title="Aucun médecin enregistré.">Ajoutez un médecin pour pouvoir générer une facture.</Empty>}
       {data?.length > 0 && (
         <div className="table-wrap"><table className="table">
           <thead><tr><th>Médecin</th><th className="num">Fiches à facturer</th><th className="num">Montant</th><th>Factures du mois</th><th /></tr></thead>
@@ -59,7 +59,7 @@ function Prepare() {
               <td className="num">{r.billable.length}</td>
               <td className="num">{r.billable.length ? fmtMoney(r.billable_total) : '—'}</td>
               <td>{r.invoices.length ? r.invoices.map((i) => <Link key={i.id} to={`/factures/${i.id}`} className="inv-link"><InvoiceState status={i.status} /> {i.numero || `#${i.id}`} {fmtMoney(i.total)}</Link>) : <span className="muted">—</span>}</td>
-              <td className="num">{r.billable.length > 0 && <button className="btn btn-small btn-primary" disabled={busy === r.doctor_id} onClick={() => generate(r)}>Générer la facture</button>}</td>
+              <td className="num">{<button className="btn btn-small btn-primary" disabled={busy === r.doctor_id} onClick={() => generate(r)}>Générer la facture</button>}</td>
             </tr>
           ))}</tbody>
         </table></div>
