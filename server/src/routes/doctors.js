@@ -75,13 +75,13 @@ router.get('/doctors/:id', async (req, res) => {
     col('carnets').findOne({ doctor_id: id }),
     col('requests').find({ doctor_id: id, deleted_at: null }, { projection: { numero: 1, patient_name: 1, created_date: 1, status: 1, delivery_planned: 1, delivery_actual: 1, total: 1 } })
       .sort({ created_date: -1, _id: -1 }).toArray(),
-    col('fiches').find({ doctor_id: id }, { projection: { lines: 0 } }).sort({ date: -1, _id: -1 }).toArray(),
+    col('fiches').find({ doctor_id: id }, { projection: { 'lines.unit_price': 0, 'lines.list_price': 0 } }).sort({ date: -1, _id: -1 }).toArray(),
     col('invoices').find({ doctor_id: id }, { projection: { numero: 1, period: 1, status: 1, total: 1, validated_at: 1 } }).sort({ period: -1, _id: -1 }).toArray(),
   ]);
   const invNum = new Map(invoices.map((i) => [i._id, i.numero]));
   d.carnet = out(carnet);
   d.requests = requests.map(out);
-  d.fiches = fiches.map((f) => ({ ...out(f), invoice_numero: f.invoice_id ? invNum.get(f.invoice_id) || null : null }));
+  d.fiches = fiches.map(({ lines, ...f }) => ({ ...out(f), designations: [...new Set((lines || []).map((l) => l.designation_label).filter(Boolean))].join(', '), invoice_numero: f.invoice_id ? invNum.get(f.invoice_id) || null : null }));
   d.invoices = invoices.map(out);
   d.total_invoiced = invoices.filter((i) => i.status === 'validee').reduce((s, i) => s + (i.total || 0), 0);
   res.json(d);

@@ -164,9 +164,9 @@ export function DoctorDetail() {
           </table></div>) : <p className="muted">Aucune demande.</p>)}
         {tab === 'fiches' && (d.fiches.length ? (
           <div className="table-wrap"><table className="table">
-            <thead><tr><th>N°</th><th>Date</th><th>Patient</th><th>Lieu</th><th>État</th><th>Facture</th><th className="num">Montant</th></tr></thead>
+            <thead><tr><th>N°</th><th>Date</th><th>Patient</th><th>Désignation</th><th>État</th><th>Facture</th><th className="num">Montant</th></tr></thead>
             <tbody>{d.fiches.map((f) => (
-              <tr key={f.id}><td><Link to={`/fiches/${f.id}`} className="mono-num">{f.numero}</Link></td><td>{fmtDate(f.date)}</td><td>{f.patient_name}</td><td>{f.lieu}</td>
+              <tr key={f.id}><td><Link to={`/fiches/${f.id}`} className="mono-num">{f.numero}</Link></td><td>{fmtDate(f.date)}</td><td>{f.patient_name}</td><td>{f.designations || '—'}</td>
                 <td>{f.status === 'validee' ? 'Validée' : <span className="tag">brouillon</span>}</td><td>{f.invoice_id ? <Link to={`/factures/${f.invoice_id}`}>{f.invoice_numero || 'brouillon'}</Link> : '—'}</td><td className="num">{fmtMoney(f.total)}</td></tr>
             ))}</tbody>
           </table></div>) : <p className="muted">Aucune fiche.</p>)}

@@ -5,7 +5,7 @@ import { useAuth } from '../auth';
 import DentalChart, { isTemporary } from '../components/DentalChart';
 import { WorkCard, makeCategoryColor, listPrice } from '../components/WorkFields';
 import { DoctorSelect, ErrorBox, Field, Loading, PageHeader, StatusBadge, useUi } from '../components/ui';
-import { STATUS, STATUS_KEYS, fmtDate, fmtMoney, relDay, roundMoney, todayISO } from '../format';
+import { STATUS, STATUS_KEYS, fmtDate, relDay, roundMoney, todayISO } from '../format';
 
 let keySeq = 1;
 const withKey = (w) => ({ ...w, _k: keySeq++ });
@@ -41,6 +41,8 @@ export default function RequestForm() {
   const [selected, setSelected] = useState([]);
   const [clipboard, setClipboard] = useState(null);
   const [mode, setMode] = useState('permanent');
+  const [multi, setMulti] = useState(false);
+  const [groupWork, setGroupWork] = useState(null);
 
   const load = useCallback(async () => {
     const [docs, des] = await Promise.all([api.get('/doctors?archived=all'), api.get('/designations?all=1')]);
@@ -94,7 +96,7 @@ export default function RequestForm() {
   }, [form?.works]);
 
   const onToothClick = (n, e) => {
-    if (e.ctrlKey || e.metaKey || e.shiftKey) setSelected((s) => (s.includes(n) ? s.filter((x) => x !== n) : [...s, n]));
+    if (multi || e.ctrlKey || e.metaKey || e.shiftKey) setSelected((s) => (s.includes(n) ? s.filter((x) => x !== n) : [...s, n]));
     else setSelected((s) => (s.length === 1 && s[0] === n ? [] : [n]));
   };
 
@@ -106,6 +108,19 @@ export default function RequestForm() {
   const addWorkToSelection = () => {
     if (!selected.length) return;
     setWorks((ws) => [...ws, ...selected.map((t) => newWork(t))]);
+  };
+
+  // Same designation (with its parameters) added in one go to every selected tooth
+  const applyGroupWork = () => {
+    const g = groupWork;
+    if (!g?.designation_id) { toast('Choisissez la désignation à ajouter.', 'error'); return; }
+    if (!form.doctor_id) { toast("Choisissez d'abord le médecin.", 'error'); return; }
+    const des = designations.find((d) => d.id === g.designation_id);
+    const unit = listPrice(des, tariff);
+    const teeth = [...selected].sort((a, b) => a - b);
+    setWorks((ws) => [...ws, ...teeth.map((t) => withKey({ tooth: t, designation_id: g.designation_id, designation_label: g.designation_label, params: { ...(g.params || {}) }, quantity: 1, unit_price: unit, total: unit, observations: g.observations || '' }))]);
+    toast(`${g.designation_label} ajouté${teeth.length > 1 ? ` aux dents ${teeth.join(', ')}` : ` à la dent ${teeth[0]}`}.`);
+    setGroupWork(null);
   };
 
   /* ---- copy / paste between teeth ---- */
@@ -169,9 +184,16 @@ export default function RequestForm() {
       const r = isNew ? await api.post('/requests', payload()) : await api.put(`/requests/${id}`, payload());
       setDirty(false);
       toast(isNew ? `Demande ${r.numero} créée.` : 'Demande enregistrée.');
+      deliveryToast(r.delivery_fiche);
       if (isNew) navigate(`/demandes/${r.id}`, { replace: true });
       else { setReq(r); setForm({ ...r, works: r.works.map(withKey) }); }
     } catch (err) { setError(err.message); window.scrollTo({ top: 0, behavior: 'smooth' }); } finally { setSaving(false); }
+  };
+
+  const deliveryToast = (df) => {
+    if (!df) return;
+    if (df.error) toast(df.error, 'error');
+    else toast(df.action === 'creee' ? `Fiche ${df.numero} créée et validée : prête à facturer.` : `Fiche ${df.numero} validée : prête à facturer.`);
   };
 
   const changeStatus = async (status) => {
@@ -180,6 +202,7 @@ export default function RequestForm() {
       const r = await api.post(`/requests/${id}/status`, { status });
       setReq(r); setForm({ ...r, works: r.works.map(withKey) }); setDirty(false);
       toast(`Statut : ${STATUS[status].label}.`);
+      deliveryToast(r.delivery_fiche);
     } catch (err) { toast(err.message, 'error'); }
   };
 
@@ -205,7 +228,6 @@ export default function RequestForm() {
 
   const selWorks = selected.length === 1 ? form.works.filter((w) => w.tooth === selected[0]) : [];
   const generalWorks = form.works.filter((w) => !w.tooth);
-  const total = roundMoney(form.works.reduce((s, w) => s + (Number(w.total) || 0), 0));
   const updateWork = (k, next) => setWorks((ws) => ws.map((w) => (w._k === k ? next : w)));
   const removeWork = (k) => setWorks((ws) => ws.filter((w) => w._k !== k));
 
@@ -253,9 +275,10 @@ export default function RequestForm() {
           {doctor && <span className="field-hint">Tarif {doctor.tariff} appliqué aux nouveaux travaux</span>}
         </div>
         <Field label="Date de création"><input type="date" required value={form.created_date} disabled={readOnly} onChange={(e) => update({ created_date: e.target.value })} /></Field>
-        <div className="field"><span className="field-label">Premier essayage</span><DateTimeInput value={form.try1_date} disabled={readOnly} onChange={(v) => update({ try1_date: v })} />
+        <div className="field"><span className="field-label">Premier essayage (facultatif)</span><DateTimeInput value={form.try1_date} disabled={readOnly} onChange={(v) => update({ try1_date: v })} />
           {form.try1_date && <span className="field-hint">{relDay(form.try1_date)}</span>}</div>
-        <div className="field"><span className="field-label">Deuxième essayage (facultatif)</span><DateTimeInput value={form.try2_date} disabled={readOnly || !form.try1_date} onChange={(v) => update({ try2_date: v })} /></div>
+        <div className="field"><span className="field-label">Deuxième essayage (facultatif)</span><DateTimeInput value={form.try2_date} disabled={readOnly} onChange={(v) => update({ try2_date: v })} />
+          {form.try2_date && <span className="field-hint">{relDay(form.try2_date)}</span>}</div>
         <div className="field"><span className="field-label">Livraison prévue</span><DateTimeInput value={form.delivery_planned} disabled={readOnly} onChange={(v) => update({ delivery_planned: v })} />
           {form.delivery_planned && <span className="field-hint">{relDay(form.delivery_planned)}</span>}</div>
         {!isNew && <div className="field"><span className="field-label">Livraison effective</span><DateTimeInput value={form.delivery_actual} disabled={readOnly} onChange={(v) => update({ delivery_actual: v })} /></div>}
@@ -273,11 +296,12 @@ export default function RequestForm() {
         </div>
         {!readOnly && (
           <div className="chart-toolbar">
+            <button type="button" className={`btn btn-small ${multi ? 'btn-primary' : ''}`} aria-pressed={multi} onClick={() => setMulti((m) => !m)}>Sélection multiple{multi ? ' : activée' : ''}</button>
             <button type="button" className="btn btn-small" onClick={copy} disabled={selected.length !== 1}>Copier <kbd>Ctrl C</kbd></button>
             <button type="button" className="btn btn-small" onClick={paste} disabled={!clipboard}>Coller <kbd>Ctrl V</kbd></button>
             <button type="button" className="btn btn-small" onClick={() => setSelected([])} disabled={!selected.length}>Désélectionner</button>
             <span className="chart-hint">
-              {clipboard ? `Presse-papiers : dent ${clipboard.from} (${clipboard.works.length} travail${clipboard.works.length > 1 ? 'x' : ''})` : 'Ctrl + clic pour sélectionner plusieurs dents'}
+              {clipboard ? `Presse-papiers : dent ${clipboard.from} (${clipboard.works.length} travail${clipboard.works.length > 1 ? 'x' : ''})` : multi ? 'Cliquez sur les dents pour les ajouter ou les retirer de la sélection' : 'Activez « Sélection multiple » (ou Ctrl + clic) pour choisir plusieurs dents'}
             </span>
           </div>
         )}
@@ -289,13 +313,30 @@ export default function RequestForm() {
             </ul>
           </div>
           <div className="tooth-panel">
-            {selected.length === 0 && <div className="tooth-panel-empty"><p><strong>Sélectionnez une dent</strong> sur le schéma pour lui associer des travaux.</p><p className="muted">Les dents colorées ont déjà des travaux ; le chiffre indique leur nombre.</p></div>}
+            {selected.length === 0 && <div className="tooth-panel-empty"><p><strong>Sélectionnez une dent</strong> sur le schéma pour lui associer des travaux.</p><p className="muted">Pour un même travail sur plusieurs dents, activez « Sélection multiple ». Les dents colorées ont déjà des travaux ; le chiffre indique leur nombre.</p></div>}
             {selected.length > 1 && (
               <div className="tooth-panel-multi">
                 <h3>{selected.length} dents sélectionnées</h3>
                 <p className="muted">{[...selected].sort((a, b) => a - b).join(', ')}</p>
-                {!readOnly && <button type="button" className="btn btn-primary" onClick={addWorkToSelection}>Ajouter un travail à ces dents</button>}
+                {!readOnly && (
+                  <>
+                    <WorkCard work={groupWork || { designation_id: null, designation_label: '', params: {}, quantity: 1, unit_price: 0, total: 0, observations: '' }}
+                      designations={designations} tariff={tariff} canPrice={false} readOnly={!form.doctor_id}
+                      color={groupWork?.designation_id ? colors.colorOfWork(groupWork) : undefined} onChange={setGroupWork} required={false} />
+                    <button type="button" className="btn btn-primary" onClick={applyGroupWork} disabled={!form.doctor_id || !groupWork?.designation_id} title={form.doctor_id ? '' : "Choisissez d'abord le médecin"}>
+                      Ajouter à ces {selected.length} dents
+                    </button>
+                  </>
+                )}
                 {clipboard && !readOnly && <button type="button" className="btn" onClick={paste}>Coller les travaux de la dent {clipboard.from}</button>}
+                {[...selected].sort((a, b) => a - b).some((t) => worksByTooth.get(t)?.length) && (
+                  <ul className="group-works">
+                    {[...selected].sort((a, b) => a - b).flatMap((t) => (worksByTooth.get(t) || []).map((w) => (
+                      <li key={w._k}><strong>{t}</strong> {w.designation_label || <em className="muted">à choisir</em>}
+                        {!readOnly && <button type="button" className="icon-btn" onClick={() => removeWork(w._k)} aria-label={`Retirer ${w.designation_label} de la dent ${t}`}>×</button>}</li>
+                    )))}
+                  </ul>
+                )}
               </div>
             )}
             {selected.length === 1 && (
@@ -325,7 +366,7 @@ export default function RequestForm() {
         <h2>Récapitulatif des travaux</h2>
         {form.works.length === 0 ? <p className="muted">Aucun travail pour le moment.</p> : (
           <div className="table-wrap"><table className="table">
-            <thead><tr><th>Dent</th><th>Désignation</th><th>Paramètres</th><th className="num">Qté</th><th className="num">Prix unitaire</th><th className="num">Montant</th></tr></thead>
+            <thead><tr><th>Dent</th><th>Désignation</th><th>Paramètres</th></tr></thead>
             <tbody>
               {[...form.works].sort((a, b) => (a.tooth || 999) - (b.tooth || 999)).map((w) => {
                 const des = designations.find((d) => d.id === w.designation_id);
@@ -334,12 +375,10 @@ export default function RequestForm() {
                     <td><strong>{w.tooth || '—'}</strong></td>
                     <td>{w.designation_label || <em className="muted">à choisir</em>}{w.observations && <div className="muted small">{w.observations}</div>}</td>
                     <td className="small">{(des?.params || []).filter((p) => w.params?.[p.key]).map((p) => `${p.label} ${w.params[p.key]}`).join(', ')}</td>
-                    <td className="num">{w.quantity}</td><td className="num">{fmtMoney(w.unit_price)}</td><td className="num">{fmtMoney(w.total)}</td>
                   </tr>
                 );
               })}
             </tbody>
-            <tfoot><tr><td colSpan={5} className="num">Total</td><td className="num"><strong>{fmtMoney(total)}</strong></td></tr></tfoot>
           </table></div>
         )}
       </section>
@@ -360,7 +399,7 @@ export default function RequestForm() {
           {can('delete_archive') && <button type="button" className="btn btn-danger-ghost" onClick={remove}>Supprimer la demande</button>}
         </section>
       )}
-      {!readOnly && <div className="sticky-save"><span>Total {fmtMoney(total)}</span><button className="btn btn-primary" disabled={saving}>{isNew ? 'Créer la demande' : 'Enregistrer'}</button></div>}
+      {!readOnly && <div className="sticky-save"><span>{form.works.length} travail{form.works.length > 1 ? 'x' : ''}</span><button className="btn btn-primary" disabled={saving}>{isNew ? 'Créer la demande' : 'Enregistrer'}</button></div>}
     </form>
   );
 }

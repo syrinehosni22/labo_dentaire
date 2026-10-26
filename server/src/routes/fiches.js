@@ -2,6 +2,7 @@ const express = require('express');
 const { col, insert, out, toId, nextSeq, rx, nowStamp } = require('../db');
 const { requirePerm } = require('../auth');
 const { bad, notFound, audit, roundMoney, pad, today, validDate } = require('../util');
+const { refreshDraftInvoice } = require('./invoices');
 
 const router = express.Router();
 
@@ -104,7 +105,7 @@ router.get('/carnets/:id', async (req, res) => {
   const invNum = new Map((await col('invoices').find({ _id: { $in: fiches.map((f) => f.invoice_id).filter(Boolean) } }, { projection: { numero: 1 } }).toArray()).map((i) => [i._id, i.numero]));
   res.json({
     ...c, last_name: d?.last_name, first_name: d?.first_name, tariff: d?.tariff, doctor_archived: !!d?.archived,
-    fiches: fiches.map(({ lines, ...f }) => ({ ...out(f), lines_count: (lines || []).length, invoice_numero: f.invoice_id ? invNum.get(f.invoice_id) || null : null })),
+    fiches: fiches.map(({ lines, ...f }) => ({ ...out(f), lines_count: (lines || []).length, designations: [...new Set((lines || []).map((l) => l.designation_label).filter(Boolean))].join(', '), invoice_numero: f.invoice_id ? invNum.get(f.invoice_id) || null : null })),
   });
 });
 
@@ -136,32 +137,39 @@ router.post('/fiches', requirePerm('fiches_manage'), async (req, res) => {
   res.status(201).json(await createFiche(req, req.body));
 });
 
-router.put('/fiches/:id', requirePerm('fiches_manage'), async (req, res) => {
+// A fiche on a validated invoice is frozen (the invoice must be rectified); on a draft invoice it can still change
+function frozenByInvoice(f, action) {
+  if (f.invoice_id && f.invoice_status !== 'brouillon') throw bad(`Cette fiche est facturée (${f.invoice_numero || 'facture validée'}) : elle ne peut plus être ${action}. Rectifiez d'abord la facture.`);
+}
+
+router.put('/fiches/:id', requirePerm('fiches_manage'), requirePerm('fiches_edit'), async (req, res) => {
   const f = await loadFiche(req.params.id);
-  if (f.invoice_id) throw bad(`Cette fiche est rattachée à la facture ${f.invoice_numero || 'en préparation'} : elle ne peut plus être modifiée.`);
+  frozenByInvoice(f, 'modifiée');
   const b = req.body;
   const doctor = await col('doctors').findOne({ _id: f.doctor_id });
   const lines = b.lines ? await buildLines(b.lines, doctor, req, f.lines) : null;
   const status = b.status || f.status;
   if (!['brouillon', 'validee'].includes(status)) throw bad('État de fiche invalide.');
   if (status === 'validee' && (lines ? lines.length : f.lines.length) === 0) throw bad('Ajoutez au moins une ligne de travaux avant de valider la fiche.');
+  if (f.invoice_id && status !== 'validee') throw bad('Cette fiche est dans un brouillon de facture : elle doit rester validée. Supprimez-la de la facture (ou supprimez le brouillon) pour la repasser en brouillon.');
   const d = b.date ? validDate(b.date, 'La date de la fiche', true).slice(0, 10) : f.date;
   const set = { lieu: b.lieu ?? f.lieu, date: d, patient_name: b.patient_name ?? f.patient_name, status, updated_at: nowStamp() };
   if (lines) Object.assign(set, { lines }, totals(lines));
-  // invoice_id: null in the filter = the fiche cannot be changed while an invoice is being created from it
-  const r = await col('fiches').updateOne({ _id: f.id, invoice_id: null }, { $set: set });
-  if (!r.matchedCount) throw bad('Cette fiche vient d\'être rattachée à une facture : elle ne peut plus être modifiée.');
+  // invoice_id in the filter = nothing is overwritten if the fiche was attached to another invoice meanwhile
+  const r = await col('fiches').updateOne({ _id: f.id, invoice_id: f.invoice_id ?? null }, { $set: set });
+  if (!r.matchedCount) throw bad('Cette fiche vient d\'être rattachée à une facture : rechargez la page.');
+  await refreshDraftInvoice(f.invoice_id);
   audit(req, f.status !== status ? `fiche ${status === 'validee' ? 'validée' : 'repassée en brouillon'}` : 'modification fiche', 'fiche', f.id);
   res.json(await loadFiche(f.id));
 });
 
-router.delete('/fiches/:id', requirePerm('delete_archive'), async (req, res) => {
+router.delete('/fiches/:id', requirePerm('fiches_manage'), requirePerm('fiches_delete'), async (req, res) => {
   const f = await loadFiche(req.params.id);
-  if (f.invoice_id) throw bad('Une fiche facturée ne peut pas être supprimée.');
-  if (f.status === 'validee') throw bad('Repassez la fiche en brouillon avant de la supprimer.');
-  const r = await col('fiches').deleteOne({ _id: f.id, invoice_id: null, status: 'brouillon' });
+  frozenByInvoice(f, 'supprimée');
+  const r = await col('fiches').deleteOne({ _id: f.id, invoice_id: f.invoice_id ?? null });
   if (!r.deletedCount) throw bad('Cette fiche a changé entre-temps : rechargez la page.');
-  audit(req, 'suppression fiche', 'fiche', f.id, { numero: f.numero });
+  await refreshDraftInvoice(f.invoice_id);
+  audit(req, 'suppression fiche', 'fiche', f.id, { numero: f.numero, statut: f.status, facture_brouillon: f.invoice_id || undefined });
   res.json({ ok: true });
 });
 

@@ -202,7 +202,6 @@ async function validateRequest(b) {
     delivery_planned: validDate(b.delivery_planned, 'La date de livraison prévue'),
     delivery_actual: validDate(b.delivery_actual, 'La date de livraison effective'),
   };
-  if (v.try2_date && !v.try1_date) throw bad('Renseignez le premier essayage avant le deuxième.');
   if (v.try1_date && v.try2_date && parseLocal(v.try2_date) < parseLocal(v.try1_date)) throw bad('Le deuxième essayage doit avoir lieu après le premier.');
   for (const [k, label] of [['try1_date', 'Le premier essayage'], ['try2_date', 'Le deuxième essayage'], ['delivery_planned', 'La livraison prévue']]) {
     if (v[k] && dateOnly(v[k]) < v.created_date) throw bad(`${label} ne peut pas être antérieur à la date de création.`);
@@ -212,6 +211,42 @@ async function validateRequest(b) {
 }
 
 const worksTotal = (works) => roundMoney(works.reduce((s, w) => s + w.total, 0));
+
+// Builds a fiche from a request's works (same designation + price grouped on one line)
+async function ficheFromRequest(req, cur, { date, lieu, status }) {
+  const grouped = new Map();
+  for (const w of cur.works) {
+    const k = `${w.designation_id}|${w.unit_price}`;
+    const g = grouped.get(k) || { designation_id: w.designation_id, designation_label: w.designation_label, quantity: 0, unit_price: w.unit_price };
+    g.quantity += w.quantity; grouped.set(k, g);
+  }
+  // prices were already authorised on the request, so bypass override check by granting it for this call
+  const r2 = { ...req, perms: new Set([...req.perms, 'price_override']) };
+  return createFiche(r2, { doctor_id: cur.doctor_id, date: date || today(), lieu, patient_name: cur.patient_name, request_id: cur.id, lines: [...grouped.values()], status });
+}
+
+// On delivery, the request becomes a validated fiche, ready to be invoiced (dated on the delivery day,
+// so it is billed with that month). An existing draft fiche of the request is validated instead.
+// Never blocks the delivery: a problem is returned as a message.
+async function billOnDelivery(req, id) {
+  const cur = await loadRequest(id);
+  if (cur.status !== 'livree' || !cur.works.length) return null;
+  try {
+    if (cur.fiches.length) {
+      const drafts = await col('fiches').find({ request_id: cur.id, status: 'brouillon', invoice_id: null, 'lines.0': { $exists: true } }).toArray();
+      for (const f of drafts) {
+        await col('fiches').updateOne({ _id: f._id, status: 'brouillon', invoice_id: null }, { $set: { status: 'validee', updated_at: nowStamp() } });
+        audit(req, 'fiche validée à la livraison', 'fiche', f._id);
+      }
+      return drafts.length ? { numero: drafts.map((f) => f.numero).join(', '), action: 'validee' } : null;
+    }
+    const f = await ficheFromRequest(req, cur, { date: dateOnly(cur.delivery_actual || today()), status: 'validee' });
+    await col('requests').updateOne({ _id: cur.id }, { $push: { history: historyEntry(req, cur.status, cur.status, `Fiche ${f.numero} créée et validée à la livraison`) } });
+    return { id: f.id, numero: f.numero, action: 'creee' };
+  } catch (e) {
+    return { error: `Livraison enregistrée, mais la fiche n'a pas pu être créée : ${e.message}` };
+  }
+}
 
 router.get('/requests/:id', requirePerm('requests_view'), async (req, res) => res.json(await loadRequest(req.params.id)));
 
@@ -231,8 +266,9 @@ router.post('/requests', requirePerm('requests_edit'), async (req, res) => {
     deleted_at: null, created_by: req.user.id, updated_at: null,
   });
   audit(req, 'création demande', 'request', r.id);
+  const deliveryFiche = status === 'livree' ? await billOnDelivery(req, r.id) : null;
   onChange();
-  res.status(201).json(await loadRequest(r.id));
+  res.status(201).json({ ...(await loadRequest(r.id)), delivery_fiche: deliveryFiche });
 });
 
 router.put('/requests/:id', requirePerm('requests_edit'), async (req, res) => {
@@ -255,8 +291,9 @@ router.put('/requests/:id', requirePerm('requests_edit'), async (req, res) => {
   await col('requests').updateOne({ _id: cur.id }, update);
   const changed = ['try1_date', 'try2_date', 'delivery_planned'].filter((k) => (cur[k] || null) !== (v[k] || null));
   audit(req, 'modification demande', 'request', cur.id, changed.length ? { dates_modifiees: changed } : null);
+  const deliveryFiche = req.body.status === 'livree' && cur.status !== 'livree' ? await billOnDelivery(req, cur.id) : null;
   onChange();
-  res.json(await loadRequest(cur.id));
+  res.json({ ...(await loadRequest(cur.id)), delivery_fiche: deliveryFiche });
 });
 
 // Adds a status change (and its history entry) to an update document
@@ -283,8 +320,9 @@ router.post('/requests/:id/status', requirePerm('status_update'), async (req, re
   const r = await col('requests').updateOne({ _id: cur.id, status: cur.status }, update);
   if (!r.matchedCount) throw bad('Le statut de cette demande vient d\'être modifié par quelqu\'un d\'autre : rechargez la page.');
   audit(req, 'changement statut', 'request', cur.id, { de: cur.status, vers: status });
+  const deliveryFiche = status === 'livree' ? await billOnDelivery(req, cur.id) : null;
   onChange();
-  res.json(await loadRequest(cur.id));
+  res.json({ ...(await loadRequest(cur.id)), delivery_fiche: deliveryFiche });
 });
 
 // Mark a fitting (essayage) as done / not done
@@ -319,15 +357,7 @@ router.post('/requests/:id/fiche', requirePerm('fiches_manage'), async (req, res
   const cur = await loadRequest(req.params.id);
   if (!cur.works.length) throw bad("Cette demande n'a aucun travail à reporter sur une fiche.");
   if (cur.fiches.length && !req.body.force) throw bad(`Une fiche existe déjà pour cette demande (${cur.fiches.map((f) => f.numero).join(', ')}).`);
-  const grouped = new Map();
-  for (const w of cur.works) {
-    const k = `${w.designation_id}|${w.unit_price}`;
-    const g = grouped.get(k) || { designation_id: w.designation_id, designation_label: w.designation_label, quantity: 0, unit_price: w.unit_price };
-    g.quantity += w.quantity; grouped.set(k, g);
-  }
-  // prices were already authorised on the request, so bypass override check by granting it for this call
-  const r2 = { ...req, perms: new Set([...req.perms, 'price_override']) };
-  const fiche = await createFiche(r2, { doctor_id: cur.doctor_id, date: req.body.date || today(), lieu: req.body.lieu, patient_name: cur.patient_name, request_id: cur.id, lines: [...grouped.values()] });
+  const fiche = await ficheFromRequest(req, cur, { date: req.body.date, lieu: req.body.lieu });
   res.status(201).json(fiche);
 });
 

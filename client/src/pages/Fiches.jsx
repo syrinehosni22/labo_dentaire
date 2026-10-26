@@ -63,10 +63,10 @@ export function CarnetDetail() {
         </div>
         {idx === 0 ? <Empty title="Aucune fiche dans ce carnet." /> : (
           <div className="table-wrap"><table className="table">
-            <thead><tr><th>N°</th><th>Date</th><th>Patient</th><th>Lieu</th><th className="num">Lignes</th><th>État</th><th>Facture</th><th className="num">Montant</th></tr></thead>
+            <thead><tr><th>N°</th><th>Date</th><th>Patient</th><th>Désignation</th><th className="num">Lignes</th><th>État</th><th>Facture</th><th className="num">Montant</th></tr></thead>
             <tbody>{c.fiches.map((x) => (
               <tr key={x.id} className="clickable" onClick={() => navigate(`/fiches/${x.id}`)}>
-                <td><Link to={`/fiches/${x.id}`} className="mono-num">{x.numero}</Link></td><td>{fmtDate(x.date)}</td><td>{x.patient_name}</td><td>{x.lieu}</td><td className="num">{x.lines_count}</td>
+                <td><Link to={`/fiches/${x.id}`} className="mono-num">{x.numero}</Link></td><td>{fmtDate(x.date)}</td><td>{x.patient_name}</td><td>{x.designations || '—'}</td><td className="num">{x.lines_count}</td>
                 <td>{x.status === 'validee' ? 'Validée' : <span className="tag">brouillon</span>}</td><td>{x.invoice_id ? (x.invoice_numero || 'en préparation') : '—'}</td><td className="num">{fmtMoney(x.total)}</td>
               </tr>
             ))}</tbody>
@@ -101,8 +101,10 @@ export function FicheForm() {
 
   if (!form) return error ? <ErrorBox error={error} /> : <Loading />;
   const doctor = doctors.find((d) => String(d.id) === String(form.doctor_id));
-  const locked = !!fiche?.invoice_id;
-  const readOnly = locked || !can('fiches_manage');
+  const inDraftInvoice = !!fiche?.invoice_id && fiche.invoice_status === 'brouillon';
+  const locked = !!fiche?.invoice_id && !inDraftInvoice;
+  const readOnly = isNew ? false : locked || !can('fiches_edit');
+  const canDelete = !isNew && !locked && can('fiches_delete');
   const canPrice = can('price_override');
   const subtotal = roundMoney(form.lines.reduce((s, l) => s + (Number(l.total) || 0), 0));
 
@@ -128,7 +130,7 @@ export function FicheForm() {
     setError(null);
     const lines = form.lines.filter((l) => l.designation_id).map(({ _k, ...l }) => l);
     // lines without a designation are treated as empty and ignored
-    if (status === 'validee' && !(await confirm({ title: 'Valider la fiche', message: 'Une fiche validée pourra être facturée. Vous pourrez encore la modifier tant qu\'elle n\'est pas rattachée à une facture.', confirmLabel: 'Valider la fiche' }))) return;
+    if (status === 'validee' && !(await confirm({ title: 'Valider la fiche', message: 'Une fiche validée pourra être facturée. Elle reste modifiable tant que sa facture n\'est pas validée.', confirmLabel: 'Valider la fiche' }))) return;
     setSaving(true);
     try {
       const body = { ...form, lines, status };
@@ -140,7 +142,7 @@ export function FicheForm() {
   };
 
   const remove = async () => {
-    if (!(await confirm({ title: 'Supprimer la fiche', message: `La fiche ${fiche.numero} sera définitivement supprimée.`, confirmLabel: 'Supprimer', danger: true }))) return;
+    if (!(await confirm({ title: 'Supprimer la fiche', message: `La fiche ${fiche.numero} sera définitivement supprimée.${inDraftInvoice ? ' Elle sera aussi retirée du brouillon de facture.' : ''}`, confirmLabel: 'Supprimer', danger: true }))) return;
     try { await api.del(`/fiches/${id}`); toast('Fiche supprimée.'); navigate(`/carnets/${fiche.carnet_id}`); } catch (e) { toast(e.message, 'error'); }
   };
 
@@ -151,7 +153,9 @@ export function FicheForm() {
         {!isNew && <span className={`inv-state inv-${fiche.status === 'validee' ? 'validee' : 'brouillon'}`}>{fiche.status === 'validee' ? 'Validée' : 'Brouillon'}</span>}
       </PageHeader>
       <ErrorBox error={error} />
-      {locked && <div className="info-box">Cette fiche est rattachée à la facture <Link to={`/factures/${fiche.invoice_id}`}>{fiche.invoice_numero || 'en préparation'}</Link> : elle n'est plus modifiable.</div>}
+      {locked && <div className="info-box">Cette fiche est rattachée à la facture validée <Link to={`/factures/${fiche.invoice_id}`}>{fiche.invoice_numero}</Link> : elle n'est plus modifiable. Rectifiez la facture si nécessaire.</div>}
+      {inDraftInvoice && <div className="info-box">Cette fiche est dans un <Link to={`/factures/${fiche.invoice_id}`}>brouillon de facture</Link> : vos modifications mettront automatiquement la facture à jour.</div>}
+      {!isNew && !locked && !can('fiches_edit') && <div className="info-box">Vous n'avez pas le droit de modifier les fiches. Demandez-le à un administrateur (liste des droits).</div>}
       <section className="card form-grid">
         <div className="field"><span className="field-label">Médecin</span>
           <DoctorSelect doctors={doctors} value={form.doctor_id} onChange={changeDoctor} disabled={!isNew} required />
@@ -188,13 +192,13 @@ export function FicheForm() {
         </table></div>
         {!readOnly && <button className="btn btn-dashed" disabled={!doctor} onClick={() => setForm((f) => ({ ...f, lines: [...f.lines, blankLine()] }))}>Ajouter une ligne</button>}
       </section>
-      {!readOnly && (
+      {(!readOnly || canDelete) && (
         <div className="form-actions">
-          {!isNew && can('delete_archive') && fiche.status !== 'validee' && <button className="btn btn-danger-ghost" onClick={remove}>Supprimer la fiche</button>}
+          {canDelete && <button className="btn btn-danger-ghost" onClick={remove}>Supprimer la fiche</button>}
           <span className="grow" />
-          {(isNew || fiche.status !== 'validee') && <button className="btn" disabled={saving} onClick={() => save('brouillon')}>Enregistrer le brouillon</button>}
-          {!isNew && fiche.status === 'validee' && <button className="btn" disabled={saving} onClick={() => save('brouillon')}>Repasser en brouillon</button>}
-          <button className="btn btn-primary" disabled={saving} onClick={() => save('validee')}>{fiche?.status === 'validee' ? 'Enregistrer' : 'Valider la fiche'}</button>
+          {!readOnly && (isNew || fiche.status !== 'validee') && <button className="btn" disabled={saving} onClick={() => save('brouillon')}>Enregistrer le brouillon</button>}
+          {!readOnly && !isNew && !inDraftInvoice && fiche.status === 'validee' && <button className="btn" disabled={saving} onClick={() => save('brouillon')}>Repasser en brouillon</button>}
+          {!readOnly && <button className="btn btn-primary" disabled={saving} onClick={() => save('validee')}>{fiche?.status === 'validee' ? 'Enregistrer' : 'Valider la fiche'}</button>}
         </div>
       )}
     </div>

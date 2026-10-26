@@ -56,8 +56,11 @@ export default function Dashboard() {
 
   const updateStatus = async (r, status) => {
     try {
-      await api.post(`/requests/${r.id}/status`, { status });
+      const res = await api.post(`/requests/${r.id}/status`, { status });
       toast(`${r.numero} : ${STATUS[status].label}.`);
+      const df = res?.delivery_fiche;
+      if (df?.error) toast(df.error, 'error');
+      else if (df) toast(`Fiche ${df.numero} ${df.action === 'creee' ? 'créée et validée' : 'validée'} : prête à facturer.`);
       reload();
     } catch (e) { toast(e.message, 'error'); }
   };

@@ -8,14 +8,14 @@ export function makeCategoryColor(designations) {
   return { cats, colorOfCat, colorOfWork: (w) => colorOfCat(byId.get(w.designation_id)?.category) };
 }
 
-export function DesignationSelect({ designations, value, onChange, disabled, filter }) {
+export function DesignationSelect({ designations, value, onChange, disabled, filter, required = true }) {
   const groups = {};
   for (const d of designations) {
     if (filter && !filter(d) && d.id !== value) continue;
     (groups[d.category || 'Autre'] ||= []).push(d);
   }
   return (
-    <select value={value || ''} onChange={(e) => onChange(Number(e.target.value) || null)} disabled={disabled} required>
+    <select value={value || ''} onChange={(e) => onChange(Number(e.target.value) || null)} disabled={disabled} required={required}>
       <option value="">Choisir une désignation…</option>
       {Object.entries(groups).map(([cat, list]) => (
         <optgroup key={cat} label={cat}>
@@ -29,7 +29,7 @@ export function DesignationSelect({ designations, value, onChange, disabled, fil
 export const listPrice = (des, tariff) => (des ? des[`price_${(tariff || 'A').toLowerCase()}`] : 0);
 
 // One editable work (used for tooth works and general works)
-export function WorkCard({ work, designations, tariff, canPrice, readOnly, onChange, onRemove, color }) {
+export function WorkCard({ work, designations, tariff, canPrice, readOnly, onChange, onRemove, color, showNumbers = false, required = true }) {
   const des = designations.find((d) => d.id === work.designation_id);
   const set = (patch) => {
     const next = { ...work, ...patch };
@@ -47,9 +47,9 @@ export function WorkCard({ work, designations, tariff, canPrice, readOnly, onCha
     <div className="work-card" style={{ '--work': color }}>
       <div className="work-row">
         <label className="field grow"><span className="field-label">Désignation</span>
-          <DesignationSelect designations={designations} value={work.designation_id} onChange={changeDesignation} disabled={readOnly} />
+          <DesignationSelect designations={designations} value={work.designation_id} onChange={changeDesignation} disabled={readOnly} required={required} />
         </label>
-        {!readOnly && <button type="button" className="icon-btn" onClick={onRemove} aria-label="Supprimer ce travail" title="Supprimer ce travail">×</button>}
+        {!readOnly && onRemove && <button type="button" className="icon-btn" onClick={onRemove} aria-label="Supprimer ce travail" title="Supprimer ce travail">×</button>}
       </div>
       {des?.params?.length > 0 && (
         <div className="work-params">
@@ -68,7 +68,7 @@ export function WorkCard({ work, designations, tariff, canPrice, readOnly, onCha
           ))}
         </div>
       )}
-      <div className="work-numbers">
+      {showNumbers && <div className="work-numbers">
         <label className="field"><span className="field-label">Quantité</span>
           <input type="number" min="1" step="1" value={work.quantity} disabled={readOnly} onChange={(e) => set({ quantity: e.target.value })} />
         </label>
@@ -77,7 +77,7 @@ export function WorkCard({ work, designations, tariff, canPrice, readOnly, onCha
             title={canPrice ? '' : 'Prix du tarif du médecin (modification réservée)'} onChange={(e) => set({ unit_price: e.target.value })} />
         </label>
         <div className="field"><span className="field-label">Montant</span><output className="work-total">{fmtMoney(work.total)}</output></div>
-      </div>
+      </div>}
       <label className="field"><span className="field-label">Observations</span>
         <input value={work.observations || ''} disabled={readOnly} placeholder="Précisions pour ce travail" onChange={(e) => set({ observations: e.target.value })} />
       </label>

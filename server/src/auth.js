@@ -8,7 +8,9 @@ const PERMISSIONS = {
   requests_edit: 'Créer / modifier les demandes',
   status_update: 'Mettre à jour les statuts',
   doctors_manage: 'Gérer les médecins et les carnets',
-  fiches_manage: 'Gérer les fiches de travaux',
+  fiches_manage: 'Consulter et créer les fiches de travaux',
+  fiches_edit: 'Modifier les fiches de travaux',
+  fiches_delete: 'Supprimer les fiches de travaux',
   prices_edit: 'Modifier les listes de prix A, B, C',
   price_override: 'Modifier les prix appliqués',
   invoices_manage: 'Préparer les factures',
@@ -22,7 +24,7 @@ const PERMISSIONS = {
 const ROLE_DEFAULTS = {
   admin: Object.keys(PERMISSIONS),
   production: ['requests_view', 'requests_edit', 'status_update'],
-  administratif: ['requests_view', 'requests_edit', 'status_update', 'doctors_manage', 'fiches_manage',
+  administratif: ['requests_view', 'requests_edit', 'status_update', 'doctors_manage', 'fiches_manage', 'fiches_edit',
     'price_override', 'invoices_manage', 'invoices_validate', 'stats_view'],
 };
 

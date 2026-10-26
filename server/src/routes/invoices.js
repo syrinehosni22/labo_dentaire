@@ -239,9 +239,20 @@ router.get('/invoices/:id/pdf', requirePerm('invoices_manage', 'invoices_validat
   invoicePdf(inv, res);
 });
 
+// After a fiche linked to a draft invoice is modified or deleted, refresh that draft's lines.
+// Lines added by hand (no fiche) are kept when the invoice is grouped by fiche.
+async function refreshDraftInvoice(invoiceId) {
+  if (!invoiceId) return;
+  const inv = await col('invoices').findOne({ _id: invoiceId });
+  if (!inv || inv.status !== 'brouillon' || inv.corrects_invoice_id) return;
+  const fiches = await col('fiches').find({ invoice_id: inv._id }).sort({ date: 1, _id: 1 }).toArray();
+  const manual = inv.grouping === 'fiche' ? (inv.lines || []).filter((l) => !l.fiche_id).sort((a, b) => a.position - b.position) : [];
+  await col('invoices').updateOne({ _id: inv._id, status: 'brouillon', validating: { $ne: true } }, { $set: linesDoc([...linesFromFiches(fiches, inv.grouping), ...manual]) });
+}
+
 // A validation interrupted by a server stop leaves the lock: release it at startup
 async function releaseStaleLocks() {
   await col('invoices').updateMany({ status: 'brouillon', validating: true }, { $unset: { validating: '' } });
 }
 
-module.exports = { router, labInfo, releaseStaleLocks };
+module.exports = { router, labInfo, releaseStaleLocks, refreshDraftInvoice };
