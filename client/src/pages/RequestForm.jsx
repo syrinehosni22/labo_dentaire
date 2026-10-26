@@ -5,18 +5,40 @@ import { useAuth } from '../auth';
 import DentalChart, { isTemporary } from '../components/DentalChart';
 import { WorkCard, makeCategoryColor, listPrice } from '../components/WorkFields';
 import { DoctorSelect, ErrorBox, Field, Loading, PageHeader, StatusBadge, useUi } from '../components/ui';
-import { STATUS, STATUS_KEYS, fmtDate, relDay, roundMoney, todayISO } from '../format';
+import { STATUS, STATUS_KEYS, bridgeName, bridgesOf, fmtDate, relDay, roundMoney, sortTeeth, todayISO } from '../format';
 
 let keySeq = 1;
 const withKey = (w) => ({ ...w, _k: keySeq++ });
 
-// Date + optional time, stored as 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:mm'
+// Time always in 24-hour format (00 to 23 h), whatever the language of the browser or of the system.
+// The native time field follows the system (AM/PM on some computers), so hours and minutes are two lists.
+const HOURS = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, '0'));
+const MINUTES = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0'));
+function TimeInput24({ value, onChange, disabled }) {
+  const [h, m] = (value || '').split(':');
+  const minutes = m && !MINUTES.includes(m) ? [...MINUTES, m].sort() : MINUTES;
+  return (
+    <div className="time24" role="group" aria-label="Heure (facultative, format 24 h)">
+      <select value={h || ''} disabled={disabled} aria-label="Heure" onChange={(e) => onChange(e.target.value ? `${e.target.value}:${m || '00'}` : '')}>
+        <option value="">--</option>
+        {HOURS.map((x) => <option key={x} value={x}>{x}</option>)}
+      </select>
+      <span>h</span>
+      <select value={h ? m || '00' : ''} disabled={disabled || !h} aria-label="Minutes" onChange={(e) => onChange(`${h}:${e.target.value}`)}>
+        {!h && <option value="">--</option>}
+        {minutes.map((x) => <option key={x} value={x}>{x}</option>)}
+      </select>
+    </div>
+  );
+}
+
+// Date + optional time, stored as 'YYYY-MM-DD' or 'YYYY-MM-DDTHH:mm' (24 h)
 function DateTimeInput({ value, onChange, disabled, id }) {
   const [d, t] = (value || '').split('T');
   return (
     <div className="datetime">
       <input id={id} type="date" value={d || ''} disabled={disabled} onChange={(e) => onChange(e.target.value ? (t ? `${e.target.value}T${t}` : e.target.value) : '')} />
-      <input type="time" value={t || ''} disabled={disabled || !d} aria-label="Heure (facultative)" onChange={(e) => onChange(e.target.value ? `${d}T${e.target.value}` : d)} />
+      <TimeInput24 value={t ? t.slice(0, 5) : ''} disabled={disabled || !d} onChange={(v) => onChange(v ? `${d}T${v}` : d)} />
     </div>
   );
 }
@@ -43,6 +65,7 @@ export default function RequestForm() {
   const [mode, setMode] = useState('permanent');
   const [multi, setMulti] = useState(false);
   const [groupWork, setGroupWork] = useState(null);
+  const [asBridge, setAsBridge] = useState(true);
 
   const load = useCallback(async () => {
     const [docs, des] = await Promise.all([api.get('/doctors?archived=all'), api.get('/designations?all=1')]);
@@ -94,6 +117,7 @@ export default function RequestForm() {
     for (const w of form?.works || []) if (w.tooth) m.set(w.tooth, [...(m.get(w.tooth) || []), w]);
     return m;
   }, [form?.works]);
+  const bridges = useMemo(() => bridgesOf(form?.works), [form?.works]);
 
   const onToothClick = (n, e) => {
     if (multi || e.ctrlKey || e.metaKey || e.shiftKey) setSelected((s) => (s.includes(n) ? s.filter((x) => x !== n) : [...s, n]));
@@ -110,18 +134,27 @@ export default function RequestForm() {
     setWorks((ws) => [...ws, ...selected.map((t) => newWork(t))]);
   };
 
-  // Same designation (with its parameters) added in one go to every selected tooth
+  // Same designation (with its parameters) added in one go to every selected tooth.
+  // By default the selected teeth form a bridge: one "Bridge 14-15-16" line on the fiche and the invoice.
   const applyGroupWork = () => {
     const g = groupWork;
     if (!g?.designation_id) { toast('Choisissez la désignation à ajouter.', 'error'); return; }
     if (!form.doctor_id) { toast("Choisissez d'abord le médecin.", 'error'); return; }
     const des = designations.find((d) => d.id === g.designation_id);
     const unit = listPrice(des, tariff);
-    const teeth = [...selected].sort((a, b) => a - b);
-    setWorks((ws) => [...ws, ...teeth.map((t) => withKey({ tooth: t, designation_id: g.designation_id, designation_label: g.designation_label, params: { ...(g.params || {}) }, quantity: 1, unit_price: unit, total: unit, observations: g.observations || '' }))]);
-    toast(`${g.designation_label} ajouté${teeth.length > 1 ? ` aux dents ${teeth.join(', ')}` : ` à la dent ${teeth[0]}`}.`);
+    const teeth = sortTeeth(selected);
+    let bridge = null;
+    if (asBridge && teeth.length > 1) {
+      // same teeth as an existing bridge: the work is added to that bridge
+      const same = [...bridges.entries()].find(([, t]) => t.length === teeth.length && t.every((x, i) => x === teeth[i]));
+      bridge = same ? same[0] : Math.max(0, ...form.works.map((w) => Number(w.bridge) || 0)) + 1;
+    }
+    setWorks((ws) => [...ws, ...teeth.map((t) => withKey({ tooth: t, bridge, designation_id: g.designation_id, designation_label: g.designation_label, params: { ...(g.params || {}) }, quantity: 1, unit_price: unit, total: unit, observations: g.observations || '' }))]);
+    toast(bridge ? `${bridgeName(teeth)} : ${g.designation_label} ajouté.` : `${g.designation_label} ajouté${teeth.length > 1 ? ` aux dents ${teeth.join(', ')}` : ` à la dent ${teeth[0]}`}.`);
     setGroupWork(null);
   };
+
+  const unlinkBridge = (b) => { setWorks((ws) => ws.map((w) => (w.bridge === b ? { ...w, bridge: null } : w))); toast('Bridge dissocié : les dents sont redevenues indépendantes.'); };
 
   /* ---- copy / paste between teeth ---- */
   const copy = useCallback(() => {
@@ -227,6 +260,8 @@ export default function RequestForm() {
   if (!form) return error ? <ErrorBox error={error} /> : <Loading />;
 
   const selWorks = selected.length === 1 ? form.works.filter((w) => w.tooth === selected[0]) : [];
+  const selBridges = [...new Set(selWorks.map((w) => w.bridge).filter((b) => bridges.has(b)))];
+  const BridgeTag = ({ b }) => <span className="bridge-tag" title="Dents solidaires : une seule ligne « Bridge » sur la fiche et la facture">{bridgeName(bridges.get(b))}</span>;
   const generalWorks = form.works.filter((w) => !w.tooth);
   const updateWork = (k, next) => setWorks((ws) => ws.map((w) => (w._k === k ? next : w)));
   const removeWork = (k) => setWorks((ws) => ws.filter((w) => w._k !== k));
@@ -317,22 +352,26 @@ export default function RequestForm() {
             {selected.length > 1 && (
               <div className="tooth-panel-multi">
                 <h3>{selected.length} dents sélectionnées</h3>
-                <p className="muted">{[...selected].sort((a, b) => a - b).join(', ')}</p>
+                <p className="muted">{sortTeeth(selected).join(', ')}</p>
                 {!readOnly && (
                   <>
                     <WorkCard work={groupWork || { designation_id: null, designation_label: '', params: {}, quantity: 1, unit_price: 0, total: 0, observations: '' }}
                       designations={designations} tariff={tariff} canPrice={false} readOnly={!form.doctor_id}
                       color={groupWork?.designation_id ? colors.colorOfWork(groupWork) : undefined} onChange={setGroupWork} required={false} />
+                    <label className="check group-options">
+                      <span><input type="checkbox" checked={asBridge} onChange={(e) => setAsBridge(e.target.checked)} /> Regrouper en bridge <strong>{bridgeName(selected)}</strong></span>
+                      <span className="field-hint">Apparaît sur une seule ligne « {bridgeName(selected)} » dans la fiche et la facture.</span>
+                    </label>
                     <button type="button" className="btn btn-primary" onClick={applyGroupWork} disabled={!form.doctor_id || !groupWork?.designation_id} title={form.doctor_id ? '' : "Choisissez d'abord le médecin"}>
-                      Ajouter à ces {selected.length} dents
+                      {asBridge ? `Créer le ${bridgeName(selected)}` : `Ajouter à ces ${selected.length} dents`}
                     </button>
                   </>
                 )}
                 {clipboard && !readOnly && <button type="button" className="btn" onClick={paste}>Coller les travaux de la dent {clipboard.from}</button>}
-                {[...selected].sort((a, b) => a - b).some((t) => worksByTooth.get(t)?.length) && (
+                {sortTeeth(selected).some((t) => worksByTooth.get(t)?.length) && (
                   <ul className="group-works">
-                    {[...selected].sort((a, b) => a - b).flatMap((t) => (worksByTooth.get(t) || []).map((w) => (
-                      <li key={w._k}><strong>{t}</strong> {w.designation_label || <em className="muted">à choisir</em>}
+                    {sortTeeth(selected).flatMap((t) => (worksByTooth.get(t) || []).map((w) => (
+                      <li key={w._k}><strong>{t}</strong> {w.designation_label || <em className="muted">à choisir</em>}{bridges.has(w.bridge) && <BridgeTag b={w.bridge} />}
                         {!readOnly && <button type="button" className="icon-btn" onClick={() => removeWork(w._k)} aria-label={`Retirer ${w.designation_label} de la dent ${t}`}>×</button>}</li>
                     )))}
                   </ul>
@@ -342,6 +381,11 @@ export default function RequestForm() {
             {selected.length === 1 && (
               <>
                 <div className="tooth-panel-head"><h3>Dent {selected[0]}</h3><span className="muted">{selWorks.length ? `${selWorks.length} travail${selWorks.length > 1 ? 'x' : ''}` : 'aucun travail'}</span></div>
+                {selBridges.map((b) => (
+                  <div key={b} className="row-actions"><BridgeTag b={b} />
+                    {!readOnly && <button type="button" className="link-btn" onClick={() => unlinkBridge(b)}>Dissocier le bridge</button>}
+                    <button type="button" className="link-btn" onClick={() => setSelected(bridges.get(b))}>Sélectionner tout le bridge</button></div>
+                ))}
                 {selWorks.map((w) => (
                   <WorkCard key={w._k} work={w} designations={designations} tariff={tariff} canPrice={canPrice} readOnly={readOnly} color={colors.colorOfWork(w)}
                     onChange={(n) => updateWork(w._k, n)} onRemove={() => removeWork(w._k)} />
@@ -373,7 +417,7 @@ export default function RequestForm() {
                 return (
                   <tr key={w._k} className="clickable" onClick={() => w.tooth && setSelected([w.tooth])}>
                     <td><strong>{w.tooth || '—'}</strong></td>
-                    <td>{w.designation_label || <em className="muted">à choisir</em>}{w.observations && <div className="muted small">{w.observations}</div>}</td>
+                    <td>{bridges.has(w.bridge) && <><BridgeTag b={w.bridge} />{' '}</>}{w.designation_label || <em className="muted">à choisir</em>}{w.observations && <div className="muted small">{w.observations}</div>}</td>
                     <td className="small">{(des?.params || []).filter((p) => w.params?.[p.key]).map((p) => `${p.label} ${w.params[p.key]}`).join(', ')}</td>
                   </tr>
                 );

@@ -33,7 +33,7 @@ export default function Layout() {
     <div className={`shell ${menuOpen ? 'menu-open' : ''}`}>
       <aside className="sidebar">
         <Link to="/" className="brand">
-          <img src="/icon.svg" alt="" width="34" height="34" />
+          <img src="/logo.png" alt="" className="brand-logo" width="44" height="44" />
           <span><strong>{settings?.lab?.name || 'Laboratoire dentaire'}</strong></span>
         </Link>
         <nav className="nav" aria-label="Navigation principale">

@@ -1,6 +1,6 @@
 import { fmtMoney, moneyStep, roundMoney } from '../format';
 
-const PALETTE = ['#E9B8C4', '#B9D3E6', '#BFE0CC', '#EFD8A4', '#D5C8EC', '#F2C6A8', '#C4D9D6'];
+const PALETTE = ['#9FD3DA', '#B9E3D6', '#DCE9A6', '#C6D6EE', '#F1D9A8', '#D9CDEB', '#F0C4B4'];
 export function makeCategoryColor(designations) {
   const cats = [...new Set(designations.map((d) => d.category || 'Autre'))];
   const byId = new Map(designations.map((d) => [d.id, d]));

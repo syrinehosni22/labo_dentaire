@@ -4,7 +4,7 @@ import { api, qs } from '../api';
 import { useAuth } from '../auth';
 import { DesignationSelect, listPrice } from '../components/WorkFields';
 import { DoctorSelect, Empty, ErrorBox, Field, Loading, PageHeader, useLoad, useUi } from '../components/ui';
-import { fmtDate, fmtMoney, moneyStep, roundMoney, todayISO } from '../format';
+import { bridgeName, fmtDate, fmtMoney, moneyStep, roundMoney, todayISO } from '../format';
 
 export function CarnetList() {
   const navigate = useNavigate();
@@ -176,7 +176,8 @@ export function FicheForm() {
               return (
                 <tr key={l._k}>
                   <td className="num"><input type="number" min="1" step="any" value={l.quantity} disabled={readOnly} onChange={(e) => setLine(l._k, { quantity: e.target.value })} aria-label="Quantité" /></td>
-                  <td><DesignationSelect designations={designations} value={l.designation_id} disabled={readOnly || !doctor} onChange={(v) => pickDesignation(l._k, v)} filter={(d) => d.active} /></td>
+                  <td>{l.bridge_teeth?.length > 1 && <span className="bridge-tag" title={`Bridge sur les dents ${l.bridge_teeth.join(', ')} (${l.bridge_teeth.length} éléments)`}>{bridgeName(l.bridge_teeth)}</span>}
+                    <DesignationSelect designations={designations} value={l.designation_id} disabled={readOnly || !doctor} onChange={(v) => pickDesignation(l._k, v)} filter={(d) => d.active} /></td>
                   <td className="num"><input type="number" min="0" step={moneyStep()} value={l.unit_price} disabled={readOnly || !canPrice} onChange={(e) => setLine(l._k, { unit_price: e.target.value })} aria-label="Prix unitaire" />
                     {changed && <small className="override-flag">tarif : {fmtMoney(listPrice(des, doctor.tariff))}</small>}</td>
                   <td className="num"><strong>{fmtMoney(l.total)}</strong></td>

@@ -55,9 +55,31 @@ function normalizeName(last, first) {
 function validDate(s, label, required = false) {
   if (!s) { if (required) throw bad(`${label} est obligatoire.`); return null; }
   if (!/^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2})?$/.test(s) || isNaN(parseLocal(s))) throw bad(`${label} n'est pas une date valide.`);
+  const t = /[T ](\d{2}):(\d{2})$/.exec(s);
+  if (t && (Number(t[1]) > 23 || Number(t[2]) > 59)) throw bad(`${label} : l'heure doit être au format 24 h (00:00 à 23:59).`);
   return String(s).replace(' ', 'T');
 }
 
+// ---- Bridges: several teeth carrying the same work, shown as one "Bridge" on fiches and invoices
+// Teeth are listed in ascending order (toothOrder gives their position along the chart).
+function toothOrder(n) {
+  const q = Math.floor(n / 10); const p = n % 10;
+  const upper = [1, 2, 5, 6].includes(q); const right = [1, 4, 5, 8].includes(q);
+  return (upper ? 0 : 100) + (right ? 10 - p : 10 + p);
+}
+function cleanTeeth(list) {
+  if (!Array.isArray(list)) return null;
+  const teeth = [...new Set(list.map(Number).filter((n) => Number.isInteger(n) && n >= 11 && n <= 85 && n % 10 >= 1 && n % 10 <= 8))];
+  return teeth.length >= 2 ? teeth.sort((a, b) => a - b) : null;
+}
+const bridgeName = (teeth) => `Bridge ${teeth.join('-')}`;
+// Invoice: a whole bridge on one line, e.g. "Bridge 14-15-16 (3 éléments) : Couronne zircone"
+function bridgeInvoiceLabel(teeth, parts) {
+  const what = parts.length === 1 ? parts[0].label : parts.map((p) => `${p.label} × ${String(p.quantity).replace('.', ',')}`).join(', ');
+  return `${bridgeName(teeth)} (${teeth.length} éléments) : ${what}`;
+}
+const lineLabel = (l) => (l.bridge_teeth?.length >= 2 ? `${bridgeName(l.bridge_teeth)} : ${l.designation_label}` : l.designation_label);
+
 const STATUS_LABELS = { en_cours: 'En cours', attente_essayage: "En attente d'essayage", a_livrer: 'À livrer', livree: 'Livrée' };
 
-module.exports = { keyOf, HttpError, bad, notFound, conflict, audit, roundMoney, pad, today, currentPeriod, nowLocal, parseLocal, hasTime, dateOnly, isPast, normalizeName, validDate, STATUS_LABELS };
+module.exports = { keyOf, HttpError, bad, notFound, conflict, audit, roundMoney, pad, today, currentPeriod, nowLocal, parseLocal, hasTime, dateOnly, isPast, normalizeName, validDate, STATUS_LABELS, toothOrder, cleanTeeth, bridgeName, lineLabel, bridgeInvoiceLabel };

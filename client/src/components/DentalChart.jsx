@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { bridgesOf, toothOrder } from '../format';
 
 /*
  * 2D odontogram, FDI numbering. Viewer faces the patient: quadrants 1 and 4 (patient's right) are on the left.
@@ -80,6 +81,16 @@ export default function DentalChart({ mode = 'permanent', worksByTooth, category
     return out;
   }, [mode]);
 
+  // Bridges: a line joins the teeth of each bridge, in chart order
+  const bridgeLinks = useMemo(() => {
+    const pos = new Map(teeth.map((t) => [t.n, t]));
+    const all = [...worksByTooth.values()].flat();
+    return [...bridgesOf(all).entries()].map(([id, list]) => {
+      const pts = [...list].sort((a, b) => toothOrder(a) - toothOrder(b)).map((n) => pos.get(n)).filter(Boolean);
+      return pts.length >= 2 ? { id, pts, d: pts.map((p, i) => `${i ? 'L' : 'M'}${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(' ') } : null;
+    }).filter(Boolean);
+  }, [teeth, worksByTooth]);
+
   const handleKey = (e, n) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onToothClick(n, e); }
   };
@@ -117,6 +128,12 @@ export default function DentalChart({ mode = 'permanent', worksByTooth, category
           </g>
         );
       })}
+      {bridgeLinks.map((b) => (
+        <g key={`b${b.id}`} aria-hidden="true">
+          <path className="bridge-link" d={b.d} />
+          {b.pts.map((p) => <circle key={p.n} className="bridge-dot" cx={p.x} cy={p.y} r="3.5" />)}
+        </g>
+      ))}
     </svg>
   );
 }

@@ -1,7 +1,7 @@
 const express = require('express');
 const { col, insert, out, toId, nextSeq, getSetting, nowStamp, rx } = require('../db');
 const { requirePerm } = require('../auth');
-const { bad, notFound, audit, roundMoney, pad, today, currentPeriod } = require('../util');
+const { bad, notFound, audit, roundMoney, pad, today, currentPeriod, lineLabel, cleanTeeth, bridgeInvoiceLabel } = require('../util');
 const { invoicePdf } = require('../services/pdf');
 
 const router = express.Router();
@@ -20,19 +20,31 @@ function billableFiches(doctorId, period) {
   return col('fiches').find({ doctor_id: doctorId, status: 'validee', invoice_id: null, date: { $gte: from, $lte: to } }).sort({ date: 1, _id: 1 }).toArray();
 }
 
-// fiches are raw Mongo documents (lines embedded)
+// fiches are raw Mongo documents (lines embedded).
+// A bridge is billed as ONE line "Bridge 14-15-16 (3 éléments) : …", quantity 1, price = total of its elements.
 function linesFromFiches(fiches, grouping) {
   const all = [];
   for (const f of fiches) {
+    const base = { fiche_id: f._id, fiche_numero: f.numero, fiche_date: f.date, patient_name: f.patient_name };
+    const bridges = new Map();
     for (const l of [...(f.lines || [])].sort((a, b) => a.position - b.position)) {
-      all.push({ fiche_id: f._id, fiche_numero: f.numero, fiche_date: f.date, patient_name: f.patient_name, designation_label: l.designation_label, quantity: l.quantity, unit_price: l.unit_price, total: l.total });
+      const teeth = cleanTeeth(l.bridge_teeth);
+      if (!teeth) { all.push({ ...base, designation_label: lineLabel(l), quantity: l.quantity, unit_price: l.unit_price, total: l.total, bridge_teeth: null }); continue; }
+      const key = teeth.join('-');
+      let b = bridges.get(key);
+      if (!b) { b = { ...base, teeth, parts: [], total: 0 }; bridges.set(key, b); all.push(b); }
+      b.parts.push({ label: l.designation_label, quantity: l.quantity }); b.total = roundMoney(b.total + l.total);
+    }
+    for (const b of bridges.values()) {
+      Object.assign(b, { designation_label: bridgeInvoiceLabel(b.teeth, b.parts), quantity: 1, unit_price: b.total, bridge_teeth: b.teeth });
+      delete b.teeth; delete b.parts;
     }
   }
   if (grouping !== 'designation') return all;
   const map = new Map();
   for (const l of all) {
     const k = `${l.designation_label}|${l.unit_price}`;
-    const g = map.get(k) || { fiche_id: null, fiche_numero: null, fiche_date: null, patient_name: null, designation_label: l.designation_label, quantity: 0, unit_price: l.unit_price, total: 0, _f: new Set() };
+    const g = map.get(k) || { fiche_id: null, fiche_numero: null, fiche_date: null, patient_name: null, designation_label: l.designation_label, bridge_teeth: l.bridge_teeth || null, quantity: 0, unit_price: l.unit_price, total: 0, _f: new Set() };
     g.quantity += l.quantity; g.total = roundMoney(g.total + l.total); g._f.add(l.fiche_numero); map.set(k, g);
   }
   return [...map.values()].map(({ _f, ...g }) => ({ ...g, fiche_numero: [..._f].join(', ') }));
@@ -42,7 +54,7 @@ function linesFromFiches(fiches, grouping) {
 function linesDoc(lines) {
   const clean = lines.map((l, i) => ({
     id: i + 1, position: i, fiche_id: l.fiche_id ?? null, fiche_numero: l.fiche_numero ?? null, fiche_date: l.fiche_date ?? null, patient_name: l.patient_name ?? null,
-    designation_label: l.designation_label, quantity: Number(l.quantity), unit_price: roundMoney(l.unit_price), total: roundMoney(Number(l.quantity) * Number(l.unit_price)),
+    designation_label: l.designation_label, bridge_teeth: cleanTeeth(l.bridge_teeth), quantity: Number(l.quantity), unit_price: roundMoney(l.unit_price), total: roundMoney(Number(l.quantity) * Number(l.unit_price)),
   }));
   return { lines: clean, total: roundMoney(clean.reduce((s, l) => s + l.total, 0)), updated_at: nowStamp() };
 }

@@ -3,7 +3,7 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { api, openFile, qs } from '../api';
 import { useAuth } from '../auth';
 import { DoctorSelect, Empty, ErrorBox, Field, Loading, PageHeader, useLoad, useUi } from '../components/ui';
-import { currentPeriod, fmtDate, fmtMoney, moneyStep, periodLabel, roundMoney } from '../format';
+import { bridgeName, currentPeriod, fmtDate, fmtMoney, moneyStep, periodLabel, roundMoney } from '../format';
 import { InvoiceState } from './Doctors';
 
 export function InvoiceList() {
@@ -183,9 +183,12 @@ export function InvoiceEdit() {
 
       <article className="invoice-doc">
         <header className="inv-head">
-          <div>
-            <h2 className="inv-lab">{lab.name}</h2>
-            <p className="muted">{[lab.address, lab.phone && `Tél. ${lab.phone}`, lab.email, lab.tax_id && `MF ${lab.tax_id}`].filter(Boolean).join('\n')}</p>
+          <div className="inv-brand">
+            <img src="/logo.png" alt="" className="inv-logo" width="64" height="64" />
+            <div>
+              <h2 className="inv-lab">{lab.name}</h2>
+              <p className="muted">{[lab.address, lab.phone && `Tél. ${lab.phone}`, lab.email, lab.tax_id && `MF ${lab.tax_id}`].filter(Boolean).join('\n')}</p>
+            </div>
           </div>
           <div className="inv-meta">
             <p className="inv-title">Facture{draft ? ' (brouillon)' : ''}</p>
@@ -215,7 +218,8 @@ export function InvoiceEdit() {
               return (
                 <tr key={l._k} className={showFiche && i > 0 && inv.grouping === 'fiche' ? 'fiche-start' : ''}>
                   <td className="small">{showFiche && <>{l.fiche_numero}{l.fiche_date && <><br /><span className="muted">{fmtDate(l.fiche_date)}{l.patient_name && `, ${l.patient_name}`}</span></>}</>}</td>
-                  <td>{editable ? <input value={l.designation_label} onChange={(e) => setLine(l._k, { designation_label: e.target.value })} aria-label="Désignation" /> : l.designation_label}</td>
+                  <td>{l.bridge_teeth?.length > 1 && <span className="bridge-tag inv-bridge" title={`Bridge sur les dents ${l.bridge_teeth.join(', ')}`}>{bridgeName(l.bridge_teeth)} · {l.bridge_teeth.length} éléments</span>}
+                    {editable ? <input value={l.designation_label} onChange={(e) => setLine(l._k, { designation_label: e.target.value })} aria-label="Désignation" /> : l.designation_label}</td>
                   <td className="num">{editable ? <input type="number" min="0" step="any" value={l.quantity} onChange={(e) => setLine(l._k, { quantity: e.target.value })} aria-label="Quantité" /> : l.quantity}</td>
                   <td className="num">{editable && canPrice ? <input type="number" min="0" step={moneyStep()} value={l.unit_price} onChange={(e) => setLine(l._k, { unit_price: e.target.value })} aria-label="Prix unitaire" /> : fmtMoney(l.unit_price)}</td>
                   <td className="num">{fmtMoney(roundMoney((Number(l.quantity) || 0) * (Number(l.unit_price) || 0)))}</td>

@@ -9,12 +9,17 @@ import { ErrorBox, Field } from '../components/ui';
 function AuthLayout({ children, highlight = [11, 21, 36] }) {
   return (
     <div className="login">
-      <div className="login-art" aria-hidden="true">
-        <DentalChart mode="permanent" worksByTooth={new Map()} categoryColor={() => ''} selected={highlight} onToothClick={() => {}} readOnly />
+      <div className="login-art">
+        <div className="login-art-inner">
+          <div aria-hidden="true">
+            <DentalChart mode="permanent" worksByTooth={new Map()} categoryColor={() => ''} selected={highlight} onToothClick={() => {}} readOnly />
+          </div>
+          <p className="login-lab-name">Laboratoire Salim Dahmani</p>
+        </div>
       </div>
       <main className="login-card">
         <div className="login-inner">
-          <img src="/icon.svg" alt="" width="44" height="44" />
+          <img src="/logo.png" alt="Logo du laboratoire" className="login-logo" width="72" height="72" />
           {children}
         </div>
       </main>

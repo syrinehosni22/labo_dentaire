@@ -187,3 +187,12 @@ export function useLoad(fn, deps) {
   useEffect(() => { run(); }, [run]);
   return { ...state, reload: run, setData: (d) => setState((s) => ({ ...s, data: typeof d === 'function' ? d(s.data) : d })) };
 }
+
+/* ---------- Hour picker, always 24-hour (00 h to 23 h) ---------- */
+export function HourSelect({ value, onChange, className = '', ...rest }) {
+  return (
+    <select className={`hour-select ${className}`} value={value ?? ''} onChange={(e) => onChange(Number(e.target.value))} {...rest}>
+      {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{String(h).padStart(2, '0')} h 00</option>)}
+    </select>
+  );
+}

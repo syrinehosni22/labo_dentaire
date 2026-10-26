@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { api, openFile } from '../api';
 import { useAuth } from '../auth';
-import { ErrorBox, Field, Loading, Modal, PageHeader, useLoad, useUi } from '../components/ui';
+import { ErrorBox, Field, HourSelect, Loading, Modal, PageHeader, useLoad, useUi } from '../components/ui';
 import { ROLE_LABELS, fmtDate } from '../format';
 import { TYPE_LABELS } from './Account';
 
@@ -101,7 +101,7 @@ function ResetTools({ user }) {
         <div className="reset-link">
           <input readOnly value={result.link} onFocus={(e) => e.target.select()} aria-label="Lien de réinitialisation" />
           <button type="button" className="btn btn-primary" onClick={copy}>Copier</button>
-          <span className="muted small">Expire le {new Date(result.expires_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</span>
+          <span className="muted small">Expire le {new Date(result.expires_at).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short', hourCycle: 'h23' })}</span>
         </div>
       )}
     </section>
@@ -228,7 +228,7 @@ function NotifSettings() {
           <thead><tr><th>Type</th><th>Actif</th>{CHANNELS.map(([, l]) => <th key={l}>{l}</th>)}<th>Destinataires</th></tr></thead>
           <tbody>{Object.entries(TYPE_LABELS).map(([t, l]) => (
             <tr key={t} className={s.types[t].enabled ? '' : 'is-inactive'}>
-              <td><strong>{l}</strong>{t === 'daily_summary' && <div className="small">à <input className="hour-input" type="number" min="0" max="23" value={s.types[t].hour} onChange={(e) => setType(t, { hour: Number(e.target.value) })} aria-label="Heure du récapitulatif" /> h</div>}</td>
+              <td><strong>{l}</strong>{t === 'daily_summary' && <div className="small">à <HourSelect className="hour-input" value={s.types[t].hour} onChange={(h) => setType(t, { hour: h })} aria-label="Heure du récapitulatif (24 h)" /></div>}</td>
               <td><input type="checkbox" checked={s.types[t].enabled} onChange={(e) => setType(t, { enabled: e.target.checked })} aria-label={`Activer ${l}`} /></td>
               {CHANNELS.map(([c, cl]) => (
                 <td key={c}><input type="checkbox" disabled={c === 'platform'} checked={c === 'platform' || s.types[t].channels.includes(c)} onChange={(e) => setType(t, { channels: toggleIn(s.types[t].channels, c, e.target.checked) })} aria-label={`${l} par ${cl}`} /></td>
@@ -251,7 +251,7 @@ function NotifSettings() {
             </select>
             {r.kind === 'hours_before'
               ? <label className="inline-field"><input type="number" min="1" value={r.hours} onChange={(e) => setRem(i, { hours: Number(e.target.value) })} /> heures avant</label>
-              : <label className="inline-field">à <input type="number" min="0" max="23" value={r.hour} onChange={(e) => setRem(i, { hour: Number(e.target.value) })} /> h</label>}
+              : <label className="inline-field">à <HourSelect value={r.hour} onChange={(h) => setRem(i, { hour: h })} aria-label="Heure du rappel (24 h)" /></label>}
             <span className="grow" />
             <button className="icon-btn" onClick={() => setS((x) => ({ ...x, reminders: x.reminders.filter((_, j) => j !== i) }))} aria-label="Retirer ce rappel">×</button>
           </div>
@@ -395,7 +395,7 @@ function Backups() {
         <h2>Sauvegarde automatique</h2>
         <p className="muted small">Chaque sauvegarde est une copie complète de la base MongoDB (fichier .json.gz), conservée sur le serveur et téléchargeable. Pensez à en copier régulièrement une hors du serveur.</p>
         <div className="toolbar">
-          <label className="inline-field">Chaque jour à <input type="number" min="0" max="23" value={cfg.hour} onChange={(e) => setCfg((c) => ({ ...c, hour: e.target.value }))} /> h</label>
+          <label className="inline-field">Chaque jour à <HourSelect value={cfg.hour} onChange={(h) => setCfg((c) => ({ ...c, hour: h }))} aria-label="Heure de la sauvegarde (24 h)" /></label>
           <label className="inline-field">Conserver les <input type="number" min="1" max="365" value={cfg.keep} onChange={(e) => setCfg((c) => ({ ...c, keep: e.target.value }))} /> dernières</label>
           <button className="btn btn-small" onClick={saveCfg}>Enregistrer</button>
         </div>
@@ -410,7 +410,7 @@ function Backups() {
           <div className="table-wrap"><table className="table">
             <thead><tr><th>Fichier</th><th>Date</th><th className="num">Taille</th><th /></tr></thead>
             <tbody>{data.map((b) => (
-              <tr key={b.name}><td className="mono-num">{b.name}</td><td>{new Date(b.created_at).toLocaleString('fr-FR')}</td><td className="num">{size(b.size)}</td>
+              <tr key={b.name}><td className="mono-num">{b.name}</td><td>{new Date(b.created_at).toLocaleString('fr-FR', { hourCycle: 'h23' })}</td><td className="num">{size(b.size)}</td>
                 <td className="num row-actions"><button className="btn btn-small" onClick={() => openFile(`/backups/${encodeURIComponent(b.name)}/download`, b.name)}>Télécharger</button>
                   <button className="btn btn-small btn-danger-ghost" onClick={() => restore(b.name)}>Restaurer</button></td></tr>
             ))}</tbody>

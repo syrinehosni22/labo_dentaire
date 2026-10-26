@@ -1,7 +1,7 @@
 const express = require('express');
 const { col, insert, out, toId, nextSeq, rx, nowStamp } = require('../db');
 const { requirePerm } = require('../auth');
-const { bad, notFound, audit, roundMoney, pad, today, validDate } = require('../util');
+const { bad, notFound, audit, roundMoney, pad, today, validDate, cleanTeeth, lineLabel } = require('../util');
 const { refreshDraftInvoice } = require('./invoices');
 
 const router = express.Router();
@@ -32,7 +32,7 @@ async function buildLines(lines, doctor, req, existing = []) {
     const allowed = [listPrice];
     if (prev && prev.designation_id === (des?._id ?? null)) allowed.push(prev.unit_price);
     if (!canOverride && listPrice != null && !allowed.some((a) => roundMoney(a) === roundMoney(unit))) throw bad("Vous n'avez pas le droit de modifier les prix appliqués.");
-    return { id: i + 1, position: i, designation_id: des?._id ?? null, designation_label: label, quantity: qty, list_price: listPrice, unit_price: roundMoney(unit), total: roundMoney(qty * unit) };
+    return { id: i + 1, position: i, designation_id: des?._id ?? null, designation_label: label, bridge_teeth: cleanTeeth(l.bridge_teeth), quantity: qty, list_price: listPrice, unit_price: roundMoney(unit), total: roundMoney(qty * unit) };
   });
 }
 
@@ -105,7 +105,7 @@ router.get('/carnets/:id', async (req, res) => {
   const invNum = new Map((await col('invoices').find({ _id: { $in: fiches.map((f) => f.invoice_id).filter(Boolean) } }, { projection: { numero: 1 } }).toArray()).map((i) => [i._id, i.numero]));
   res.json({
     ...c, last_name: d?.last_name, first_name: d?.first_name, tariff: d?.tariff, doctor_archived: !!d?.archived,
-    fiches: fiches.map(({ lines, ...f }) => ({ ...out(f), lines_count: (lines || []).length, designations: [...new Set((lines || []).map((l) => l.designation_label).filter(Boolean))].join(', '), invoice_numero: f.invoice_id ? invNum.get(f.invoice_id) || null : null })),
+    fiches: fiches.map(({ lines, ...f }) => ({ ...out(f), lines_count: (lines || []).length, designations: [...new Set((lines || []).map(lineLabel).filter(Boolean))].join(', '), invoice_numero: f.invoice_id ? invNum.get(f.invoice_id) || null : null })),
   });
 });
 

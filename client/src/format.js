@@ -52,3 +52,20 @@ export const moneyStep = () => (money.decimals ? `0.${'0'.repeat(money.decimals 
 export const roundMoney = (n) => { const f = 10 ** money.decimals; return Math.round((Number(n) || 0) * f) / f; };
 
 export const ROLE_LABELS = { admin: 'Administrateur', production: 'Personnel de production', administratif: 'Personnel administratif' };
+
+// ---- Bridges: several teeth carrying the same work, named "Bridge 14-15-16" on fiches and invoices
+// Names list the teeth in ascending order; toothOrder gives their position along the chart.
+export function toothOrder(n) {
+  const q = Math.floor(n / 10); const p = n % 10;
+  const upper = [1, 2, 5, 6].includes(q); const right = [1, 4, 5, 8].includes(q);
+  return (upper ? 0 : 100) + (right ? 10 - p : 10 + p);
+}
+export const sortTeeth = (teeth) => [...new Set(teeth)].sort((a, b) => a - b);
+export const bridgeName = (teeth) => `Bridge ${sortTeeth(teeth).join('-')}`;
+// Map bridge id -> ordered teeth, from a list of works ({ tooth, bridge })
+export function bridgesOf(works) {
+  const m = new Map();
+  for (const w of works || []) if (w.bridge && w.tooth) m.set(w.bridge, [...(m.get(w.bridge) || []), w.tooth]);
+  for (const [k, t] of m) { const s = sortTeeth(t); if (s.length < 2) m.delete(k); else m.set(k, s); }
+  return m;
+}
