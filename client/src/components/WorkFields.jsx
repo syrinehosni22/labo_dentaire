@@ -1,6 +1,6 @@
 import { fmtMoney, moneyStep, roundMoney } from '../format';
 
-const PALETTE = ['#9FD3DA', '#B9E3D6', '#DCE9A6', '#C6D6EE', '#F1D9A8', '#D9CDEB', '#F0C4B4'];
+const PALETTE = ['#E9B8C4', '#B9D3E6', '#BFE0CC', '#EFD8A4', '#D5C8EC', '#F2C6A8', '#C4D9D6'];
 export function makeCategoryColor(designations) {
   const cats = [...new Set(designations.map((d) => d.category || 'Autre'))];
   const byId = new Map(designations.map((d) => [d.id, d]));
@@ -26,7 +26,11 @@ export function DesignationSelect({ designations, value, onChange, disabled, fil
   );
 }
 
-export const listPrice = (des, tariff) => (des ? des[`price_${(tariff || 'A').toLowerCase()}`] : 0);
+export const listPrice = (des, tariff) => {
+  if (!des) return 0;
+  const v = des[`price_${(tariff || 'A').toLowerCase()}`];
+  return v == null || v === '' ? des.price_a : v; // tarif C facultatif → tarif A
+};
 
 // One editable work (used for tooth works and general works)
 export function WorkCard({ work, designations, tariff, canPrice, readOnly, onChange, onRemove, color, showNumbers = false, required = true }) {

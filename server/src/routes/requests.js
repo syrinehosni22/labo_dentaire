@@ -1,8 +1,8 @@
 const express = require('express');
 const { col, insert, out, toId, nextSeq, getSetting, nowStamp } = require('../db');
 const { requirePerm } = require('../auth');
-const { bad, notFound, audit, roundMoney, pad, today, validDate, parseLocal, isPast, dateOnly, STATUS_LABELS, cleanTeeth } = require('../util');
-const { priceCol, createFiche } = require('./fiches');
+const { bad, notFound, audit, roundMoney, pad, today, validDate, parseLocal, isPast, dateOnly, STATUS_LABELS } = require('../util');
+const { tariffPrice, createFiche } = require('./fiches');
 
 const router = express.Router();
 const STATUSES = Object.keys(STATUS_LABELS);
@@ -167,7 +167,7 @@ async function buildWorks(works, doctor, req, existing = []) {
   const canOverride = req.perms.has('price_override');
   const ids = [...new Set(works.map((w) => toId(w.designation_id)).filter(Boolean))];
   const desById = new Map((await col('designations').find({ _id: { $in: ids } }).toArray()).map((d) => [d._id, d]));
-  const built = works.map((w, i) => {
+  return works.map((w, i) => {
     const n = `Travail ${i + 1}${w.tooth ? ` (dent ${w.tooth})` : ''}`;
     const tooth = w.tooth == null || w.tooth === '' ? null : Number(w.tooth);
     if (tooth != null && !VALID_TEETH.has(tooth)) throw bad(`${n} : numéro de dent FDI invalide.`);
@@ -176,7 +176,7 @@ async function buildWorks(works, doctor, req, existing = []) {
     des.id = des._id;
     const qty = w.quantity == null || w.quantity === '' ? 1 : Number(w.quantity);
     if (!(qty > 0)) throw bad(`${n} : quantité invalide.`);
-    const listPrice = des[priceCol(doctor.tariff)];
+    const listPrice = tariffPrice(des, doctor.tariff);
     const unit = w.unit_price == null || w.unit_price === '' ? listPrice : Number(w.unit_price);
     if (isNaN(unit) || unit < 0) throw bad(`${n} : prix invalide.`);
     const prev = existing.find((e) => e.id === w.id && e.designation_id === des.id);
@@ -187,14 +187,8 @@ async function buildWorks(works, doctor, req, existing = []) {
     const defs = typeof des.params === 'string' ? JSON.parse(des.params) : (des.params || []);
     const params = {};
     for (const p of defs) if (w.params && w.params[p.key] != null && w.params[p.key] !== '') params[p.key] = w.params[p.key];
-    const bridge = tooth != null && Number.isInteger(Number(w.bridge)) && Number(w.bridge) > 0 ? Number(w.bridge) : null;
-    return { id: i + 1, tooth, bridge, designation_id: des.id, designation_label: des.name, params, quantity: qty, list_price: listPrice, unit_price: roundMoney(unit), total: roundMoney(qty * unit), observations: w.observations || null };
+    return { id: i + 1, tooth, designation_id: des.id, designation_label: des.name, params, quantity: qty, list_price: listPrice, unit_price: roundMoney(unit), total: roundMoney(qty * unit), observations: w.observations || null };
   });
-  // a bridge needs at least two different teeth: otherwise it is an ordinary work
-  for (const b of new Set(built.map((w) => w.bridge).filter(Boolean))) {
-    if (!cleanTeeth(built.filter((w) => w.bridge === b).map((w) => w.tooth))) built.forEach((w) => { if (w.bridge === b) w.bridge = null; });
-  }
-  return built;
 }
 
 async function validateRequest(b) {
@@ -218,22 +212,17 @@ async function validateRequest(b) {
 
 const worksTotal = (works) => roundMoney(works.reduce((s, w) => s + w.total, 0));
 
-// Builds a fiche from a request's works (same designation + price grouped on one line).
-// The teeth of a bridge stay together on their own line, named "Bridge 14-15-16".
+// Builds a fiche from a request's works (same designation + price grouped on one line)
 async function ficheFromRequest(req, cur, { date, lieu, status }) {
   const grouped = new Map();
   for (const w of cur.works) {
-    const k = `${w.bridge ? `b${w.bridge}` : ''}|${w.designation_id}|${w.unit_price}`;
-    const g = grouped.get(k) || { designation_id: w.designation_id, designation_label: w.designation_label, quantity: 0, unit_price: w.unit_price, _bridge: w.bridge || null };
+    const k = `${w.designation_id}|${w.unit_price}`;
+    const g = grouped.get(k) || { designation_id: w.designation_id, designation_label: w.designation_label, quantity: 0, unit_price: w.unit_price };
     g.quantity += w.quantity; grouped.set(k, g);
   }
-  // every line of a bridge is named after all the teeth of that bridge
-  const bridgeTeeth = (b) => cleanTeeth(cur.works.filter((w) => w.bridge === b).map((w) => w.tooth));
-  const lines = [...grouped.values()].map(({ _bridge, ...g }) => ({ ...g, bridge_teeth: _bridge ? bridgeTeeth(_bridge) : null }));
-  lines.sort((a, b) => (b.bridge_teeth ? 1 : 0) - (a.bridge_teeth ? 1 : 0));
   // prices were already authorised on the request, so bypass override check by granting it for this call
   const r2 = { ...req, perms: new Set([...req.perms, 'price_override']) };
-  return createFiche(r2, { doctor_id: cur.doctor_id, date: date || today(), lieu, patient_name: cur.patient_name, request_id: cur.id, lines, status });
+  return createFiche(r2, { doctor_id: cur.doctor_id, date: date || today(), lieu, patient_name: cur.patient_name, request_id: cur.id, lines: [...grouped.values()], status });
 }
 
 // On delivery, the request becomes a validated fiche, ready to be invoiced (dated on the delivery day,

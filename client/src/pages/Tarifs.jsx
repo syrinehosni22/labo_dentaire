@@ -7,7 +7,7 @@ import { fmtDate, fmtMoney, moneyStep } from '../format';
 const EMPTY = { name: '', category: '', price_a: '', price_b: '', price_c: '', params: [], per_tooth: true, active: true };
 
 function DesignationModal({ initial, categories, onClose, onSaved }) {
-  const [f, setF] = useState(initial ? { ...initial, params: initial.params.map((p) => ({ ...p, options: (p.options || []).join(', ') })) } : EMPTY);
+  const [f, setF] = useState(initial ? { ...initial, price_c: initial.price_c ?? '', params: initial.params.map((p) => ({ ...p, options: (p.options || []).join(', ') })) } : EMPTY);
   const [error, setError] = useState(null);
   const { data: history } = useLoad(() => (initial ? api.get(`/designations/${initial.id}/history`) : Promise.resolve([])), [initial?.id]);
   const set = (k) => (e) => setF((x) => ({ ...x, [k]: e.target.type === 'checkbox' ? e.target.checked : e.target.value }));
@@ -29,9 +29,10 @@ function DesignationModal({ initial, categories, onClose, onSaved }) {
         <div className="form-grid">
           <Field label="Désignation"><input required value={f.name} onChange={set('name')} /></Field>
           <Field label="Catégorie"><input list="cats" value={f.category || ''} onChange={set('category')} /><datalist id="cats">{categories.map((c) => <option key={c} value={c} />)}</datalist></Field>
-          {['a', 'b', 'c'].map((l) => (
+          {['a', 'b'].map((l) => (
             <Field key={l} label={`Prix tarif ${l.toUpperCase()}`}><input type="number" required min="0" step={moneyStep()} value={f[`price_${l}`]} onChange={set(`price_${l}`)} /></Field>
           ))}
+          <Field label="Prix tarif C (facultatif)"><input type="number" min="0" step={moneyStep()} placeholder="Vide = tarif A" value={f.price_c} onChange={set('price_c')} /></Field>
           <label className="check span-all"><input type="checkbox" checked={f.per_tooth} onChange={set('per_tooth')} /> Travail associé à une dent (sinon : travail général, ex. prothèse complète)</label>
           {initial && <label className="check span-all"><input type="checkbox" checked={f.active} onChange={set('active')} /> Désignation active (décochez pour ne plus la proposer ; l'historique est conservé)</label>}
         </div>
@@ -52,7 +53,7 @@ function DesignationModal({ initial, categories, onClose, onSaved }) {
           <>
             <h3 className="sub-h">Historique des prix</h3>
             <ul className="history-list">
-              {history.map((h) => <li key={h.id}><span className="muted">{fmtDate(h.at.slice(0, 10))}</span> Tarif {h.list} : {fmtMoney(h.old_price)} → <strong>{fmtMoney(h.new_price)}</strong> <span className="muted">({h.user_name})</span></li>)}
+              {history.map((h) => <li key={h.id}><span className="muted">{fmtDate(h.at.slice(0, 10))}</span> Tarif {h.list} : {h.old_price == null ? '—' : fmtMoney(h.old_price)} → <strong>{h.new_price == null ? '— (tarif A)' : fmtMoney(h.new_price)}</strong> <span className="muted">({h.user_name})</span></li>)}
             </ul>
           </>
         )}
@@ -96,7 +97,7 @@ export default function Tarifs() {
                 {ds.map((d) => (
                   <tr key={d.id} className={d.active ? '' : 'is-inactive'}>
                     <td><strong>{d.name}</strong>{!d.active && <span className="tag">désactivée</span>}{!d.per_tooth && <span className="tag tag-soft">général</span>}</td>
-                    <td className="num">{fmtMoney(d.price_a)}</td><td className="num">{fmtMoney(d.price_b)}</td><td className="num">{fmtMoney(d.price_c)}</td>
+                    <td className="num">{fmtMoney(d.price_a)}</td><td className="num">{fmtMoney(d.price_b)}</td><td className="num">{d.price_c == null ? <span className="muted" title="Tarif C non renseigné : le tarif A s'applique">— (A)</span> : fmtMoney(d.price_c)}</td>
                     <td className="small muted">{d.params.map((p) => p.label).join(', ') || '—'}</td>
                     {canEdit && <td><button className="btn btn-small" onClick={() => setEditing(d)}>Modifier</button></td>}
                   </tr>
