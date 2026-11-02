@@ -92,6 +92,8 @@ async function loadInvoice(id) {
     corrects_numero: original?.numero || null,
     rectified_by_numero: rectifier?.numero || null,
     fiches: fiches.map(out),
+    amount_paid: roundMoney(i.amount_paid || 0),
+    amount_due: roundMoney((i.total || 0) - (i.amount_paid || 0)),
   };
 }
 
@@ -111,7 +113,8 @@ router.get('/invoices', requirePerm('invoices_manage', 'invoices_validate'), asy
   const list = await col('invoices').find(filter).sort({ period: -1, _id: -1 }).limit(500).toArray();
   const docs = new Map((await col('doctors').find({ _id: { $in: [...new Set(list.map((i) => i.doctor_id))] } }).toArray()).map((d) => [d._id, d]));
   res.json(list.map((i) => ({
-    id: i._id, numero: i.numero || null, period: i.period, status: i.status, total: i.total, validated_at: i.validated_at || null, created_at: i.created_at,
+    id: i._id, numero: i.numero || null, period: i.period, status: i.status, total: i.total,
+    amount_paid: roundMoney(i.amount_paid || 0), amount_due: roundMoney((i.total || 0) - (i.amount_paid || 0)), validated_at: i.validated_at || null, created_at: i.created_at,
     corrects_invoice_id: i.corrects_invoice_id || null, doctor_id: i.doctor_id,
     doctor_name: `${docs.get(i.doctor_id)?.last_name || ''} ${docs.get(i.doctor_id)?.first_name || ''}`.trim(),
     fiches_count: new Set((i.lines || []).map((l) => l.fiche_id).filter(Boolean)).size,
@@ -150,7 +153,7 @@ router.post('/invoices', requirePerm('invoices_manage'), async (req, res) => {
   if (Array.isArray(fiche_ids)) fiches = fiches.filter((f) => fiche_ids.map(Number).includes(f._id));
   const inv = await insert('invoices', {
     doctor_id: doctor._id, period, status: 'brouillon', grouping: grouping === 'designation' ? 'designation' : 'fiche',
-    lab_info: await labInfo(), doctor_info: doctorSnapshot(doctor), notes: null, lines: [], total: 0,
+    lab_info: await labInfo(), doctor_info: doctorSnapshot(doctor), notes: null, lines: [], total: 0, amount_paid: 0,
     corrects_invoice_id: null, correction_reason: null, issue_date: today(), validated_at: null, validated_by: null, created_by: req.user.id, updated_at: null,
   });
   // Generation is always possible: without billable fiches, an empty draft is created and lines can be added by hand
@@ -218,6 +221,20 @@ router.post('/invoices/:id/validate', requirePerm('invoices_validate'), async (r
   res.json(await loadInvoice(inv.id));
 });
 
+// Amount already paid by the doctor: can be recorded at any time (draft or validated invoice),
+// since payments usually arrive after the invoice is issued. A rectified invoice is no longer in force.
+router.put('/invoices/:id/payment', requirePerm('invoices_manage', 'invoices_validate'), async (req, res) => {
+  const inv = await loadInvoice(req.params.id);
+  if (inv.status === 'rectifiee') throw bad('Cette facture a été rectifiée : enregistrez le paiement sur la facture rectificative.');
+  const raw = req.body.amount_paid;
+  const paid = roundMoney(raw === '' || raw == null ? 0 : raw);
+  if (isNaN(Number(raw ?? 0)) || paid < 0) throw bad('Montant payé invalide.');
+  if (paid > roundMoney(inv.total)) throw bad('Le montant payé ne peut pas dépasser le total de la facture.');
+  await col('invoices').updateOne({ _id: inv.id }, { $set: { amount_paid: paid, payment_updated_at: nowStamp() } });
+  audit(req, 'paiement facture', 'invoice', inv.id, { avant: inv.amount_paid, apres: paid });
+  res.json(await loadInvoice(inv.id));
+});
+
 router.post('/invoices/:id/rectify', requirePerm('invoices_validate'), async (req, res) => {
   const inv = await loadInvoice(req.params.id);
   if (inv.status !== 'validee') throw bad('Seule une facture validée peut être rectifiée.');
@@ -227,7 +244,7 @@ router.post('/invoices/:id/rectify', requirePerm('invoices_validate'), async (re
   if (pending) return res.json(await loadInvoice(pending._id));
   const r = await insert('invoices', {
     doctor_id: inv.doctor_id, period: inv.period, status: 'brouillon', grouping: inv.grouping, lab_info: inv.lab_info, doctor_info: inv.doctor_info,
-    notes: inv.notes, ...linesDoc(inv.lines), corrects_invoice_id: inv.id, correction_reason: reason, issue_date: today(),
+    notes: inv.notes, ...linesDoc(inv.lines), amount_paid: inv.amount_paid || 0, corrects_invoice_id: inv.id, correction_reason: reason, issue_date: today(),
     validated_at: null, validated_by: null, created_by: req.user.id,
   });
   audit(req, 'rectification facture ouverte', 'invoice', inv.id, { motif: reason, brouillon: r.id });

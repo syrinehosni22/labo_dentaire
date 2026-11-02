@@ -89,11 +89,12 @@ function History() {
       {data?.length === 0 && <Empty title="Aucune facture trouvée." />}
       {data?.length > 0 && (
         <div className="table-wrap"><table className="table">
-          <thead><tr><th>N°</th><th>Médecin</th><th>Période</th><th>État</th><th className="num">Fiches</th><th className="num">Montant</th><th /></tr></thead>
+          <thead><tr><th>N°</th><th>Médecin</th><th>Période</th><th>État</th><th className="num">Fiches</th><th className="num">Montant</th><th className="num">Reste à payer</th><th /></tr></thead>
           <tbody>{data.map((i) => (
             <tr key={i.id} className="clickable" onClick={(e) => !e.target.closest('button,a') && navigate(`/factures/${i.id}`)}>
               <td><Link to={`/factures/${i.id}`} className="mono-num">{i.numero || `Brouillon #${i.id}`}</Link></td><td>Dr {i.doctor_name}</td><td>{periodLabel(i.period)}</td>
               <td><InvoiceState status={i.status} /></td><td className="num">{i.fiches_count}</td><td className="num">{fmtMoney(i.total)}</td>
+              <td className={`num${i.amount_due > 0 && i.status !== 'rectifiee' ? ' warn' : ''}`}>{i.status === 'rectifiee' ? '—' : fmtMoney(i.amount_due)}</td>
               <td className="num"><button className="btn btn-small" onClick={() => openFile(`/invoices/${i.id}/pdf`)}>PDF</button></td>
             </tr>
           ))}</tbody>
@@ -113,8 +114,10 @@ export function InvoiceEdit() {
   const [form, setForm] = useState(null);
   const [error, setError] = useState(null);
   const [dirty, setDirty] = useState(false);
+  const [paid, setPaid] = useState('');
+  const [paidDirty, setPaidDirty] = useState(false);
 
-  const apply = (i) => { setInv(i); setForm({ ...i, lines: i.lines.map((l) => ({ ...l, _k: lk++ })) }); setDirty(false); };
+  const apply = (i) => { setInv(i); setForm({ ...i, lines: i.lines.map((l) => ({ ...l, _k: lk++ })) }); setDirty(false); setPaid(String(i.amount_paid ?? 0)); setPaidDirty(false); };
   useEffect(() => { api.get(`/invoices/${id}`).then(apply).catch((e) => setError(e.message)); }, [id]);
   if (!form) return error ? <ErrorBox error={error} /> : <Loading />;
 
@@ -122,6 +125,14 @@ export function InvoiceEdit() {
   const editable = draft && can('invoices_manage');
   const canPrice = can('price_override');
   const total = roundMoney(form.lines.reduce((s, l) => s + (Number(l.quantity) || 0) * (Number(l.unit_price) || 0), 0));
+  const canPay = inv.status !== 'rectifiee' && (can('invoices_manage') || can('invoices_validate'));
+  const paidNum = roundMoney(paid);
+  const due = roundMoney(total - paidNum);
+  const savePayment = async () => {
+    setError(null);
+    if (dirty && !(await save(true))) return;
+    try { apply(await api.put(`/invoices/${id}/payment`, { amount_paid: paid })); toast('Paiement enregistré.'); } catch (e) { setError(e.message); }
+  };
   const upd = (patch) => { setForm((f) => ({ ...f, ...patch })); setDirty(true); };
   const setLine = (k, patch) => upd({ lines: form.lines.map((l) => (l._k === k ? { ...l, ...patch } : l)) });
   const setDoc = (k) => (e) => upd({ doctor_info: { ...form.doctor_info, [k]: e.target.value } });
@@ -228,8 +239,22 @@ export function InvoiceEdit() {
               );
             })}
           </tbody>
-          <tfoot><tr className="grand"><td colSpan={4} className="num">Total</td><td className="num"><strong>{fmtMoney(total)}</strong></td>{editable && <td className="no-print" />}</tr></tfoot>
+          <tfoot>
+            <tr className="grand"><td colSpan={4} className="num">Total</td><td className="num"><strong>{fmtMoney(total)}</strong></td>{editable && <td className="no-print" />}</tr>
+            <tr><td colSpan={4} className="num">Déjà payé</td>
+              <td className="num">{canPay
+                ? <><input className="no-print" type="number" min="0" step={moneyStep()} value={paid} onChange={(e) => { setPaid(e.target.value); setPaidDirty(true); }} aria-label="Montant déjà payé" /><span className="print-only">{fmtMoney(paidNum)}</span></>
+                : fmtMoney(inv.amount_paid)}</td>{editable && <td className="no-print" />}</tr>
+            <tr className="grand"><td colSpan={4} className="num">Reste à payer</td><td className={`num${due > 0 ? ' warn' : ''}`}><strong>{fmtMoney(due)}</strong></td>{editable && <td className="no-print" />}</tr>
+          </tfoot>
         </table></div>
+        {canPay && paidDirty && (
+          <div className="form-actions no-print">
+            <span className="dirty-dot">Paiement non enregistré</span><span className="grow" />
+            <button className="btn btn-small" onClick={() => apply(inv)}>Annuler</button>
+            <button className="btn btn-small btn-primary" onClick={savePayment}>Enregistrer le paiement</button>
+          </div>
+        )}
         {editable && <button className="btn btn-dashed btn-small no-print" onClick={() => upd({ lines: [...form.lines, { _k: lk++, designation_label: '', quantity: 1, unit_price: 0, fiche_id: null, fiche_numero: null }] })}>Ajouter une ligne</button>}
         {editable ? <Field label="Notes sur la facture"><textarea rows={2} value={form.notes || ''} onChange={(e) => upd({ notes: e.target.value })} /></Field>
           : inv.notes && <p className="inv-notes">{inv.notes}</p>}

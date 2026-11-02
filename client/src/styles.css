@@ -450,6 +450,8 @@ a.mono-num:hover { color: var(--accent-ink); text-decoration: underline; }
 @media (max-width: 860px) { .login { grid-template-columns: 1fr; } .login-art { display: none; } .login-card { padding: 32px 20px; } }
 
 /* ---------- Print (invoices) ---------- */
+.print-only { display: none; }
+.inv-table tfoot input { width: 140px; text-align: right; }
 @media print {
   @page { size: A4; margin: 14mm; }
   body { background: #fff; }
@@ -458,6 +460,7 @@ a.mono-num:hover { color: var(--accent-ink); text-decoration: underline; }
   .content { padding: 0; }
   .invoice-doc { border: 0; box-shadow: none; padding: 0; max-width: none; }
   .invoice-doc input, .invoice-doc textarea { border: 0; padding: 0; background: none; }
+  .print-only { display: inline !important; }
   .table th { background: #e6f1f2 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 }
 .nowrap { white-space: nowrap; }

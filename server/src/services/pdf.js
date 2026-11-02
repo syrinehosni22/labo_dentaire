@@ -87,6 +87,15 @@ function invoicePdf(inv, stream) {
   y += 10;
   doc.font('Helvetica-Bold').fontSize(12).fillColor(ink).text('Total', 48 + W * 0.5, y, { width: W * 0.25 });
   doc.text(money(inv.total, lab), 48 + W * 0.6, y, { width: W * 0.4, align: 'right' });
+  y += 20;
+  const paid = Number(inv.amount_paid || 0);
+  const due = Number(inv.amount_due ?? (inv.total || 0) - paid);
+  doc.font('Helvetica').fontSize(10).fillColor(muted).text('Déjà payé', 48 + W * 0.5, y, { width: W * 0.25 });
+  doc.text(money(paid, lab), 48 + W * 0.6, y, { width: W * 0.4, align: 'right' });
+  y += 18;
+  doc.moveTo(48 + W * 0.5, y - 4).lineTo(48 + W, y - 4).strokeColor('#CFDEE0').stroke();
+  doc.font('Helvetica-Bold').fontSize(12).fillColor(due > 0 ? accent : ink).text('Reste à payer', 48 + W * 0.5, y, { width: W * 0.3 });
+  doc.text(money(due, lab), 48 + W * 0.6, y, { width: W * 0.4, align: 'right' });
   y += 28;
   if (inv.notes) { doc.font('Helvetica').fontSize(9).fillColor(muted).text(inv.notes, 48, y, { width: W }); y = doc.y + 8; }
   if (inv.correction_reason) { doc.font('Helvetica-Oblique').fontSize(9).fillColor(muted).text(`Motif de rectification : ${inv.correction_reason}`, 48, y, { width: W }); }
