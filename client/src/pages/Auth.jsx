@@ -2,17 +2,16 @@ import { useEffect, useState } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { api } from '../api';
 import { useAuth } from '../auth';
-import DentalChart from '../components/DentalChart';
 import { ErrorBox, Field } from '../components/ui';
 
 /* ---------- shared pieces ---------- */
-function AuthLayout({ children, highlight = [11, 21, 36] }) {
+function AuthLayout({ children }) {
   return (
     <div className="login">
       <div className="login-art">
         <div className="login-art-inner">
-          <div aria-hidden="true">
-            <DentalChart mode="permanent" worksByTooth={new Map()} categoryColor={() => ''} selected={highlight} onToothClick={() => {}} readOnly />
+          <div className="login-art-logo">
+            <img src="/logo.png" alt="" aria-hidden="true" />
           </div>
           <p className="login-lab-name">Laboratoire Salim Dahmani</p>
         </div>
@@ -123,7 +122,7 @@ export function ForgotPage() {
   };
 
   return (
-    <AuthLayout highlight={[16]}>
+    <AuthLayout>
       <h1>Mot de passe oublié</h1>
       {sent ? (
         <>
@@ -178,7 +177,7 @@ export function ResetPage() {
   };
 
   return (
-    <AuthLayout highlight={[26]}>
+    <AuthLayout>
       <h1>Nouveau mot de passe</h1>
       {invalid ? (
         <>
@@ -218,7 +217,7 @@ export function ForceChangePage() {
   };
 
   return (
-    <AuthLayout highlight={[11]}>
+    <AuthLayout>
       <h1>Choisissez votre mot de passe</h1>
       <p className="muted">Bonjour {user.name.split(' ')[0]}, le mot de passe actuel de votre compte est provisoire. Remplacez-le par un mot de passe personnel pour accéder à l'application.</p>
       <form onSubmit={submit} className="auth-form">
